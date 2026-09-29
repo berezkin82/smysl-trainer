@@ -2,16 +2,205 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>Поймай смысл</title>
+<meta name="description" content="Игровой тренажёр: поймать смысл фразы с первого раза">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Смысл">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#EAF2EE">
 <style>
-  :root { --bg:#f6f7fb; --fg:#1d2433; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#141821; --fg:#e8ecf4; color-scheme:dark; } }
-  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
-         font:600 24px/1.4 -apple-system, system-ui, sans-serif; padding-inline:16px; text-align:center; }
+  :root {
+    --bg: #EAF2EE;
+    --surface: #FFFFFF;
+    --surface-2: #F4F8F6;
+    --ink: #1C2A27;
+    --muted: #5A6E69;
+    --line: #CFDDD8;
+    --accent: #F2622E;
+    --accent-ink: #FFFFFF;
+    --audio: #2C66E0;
+    --ok: #16935A;
+    --ok-bg: #DDF5E8;
+    --bad: #D63A33;
+    --bad-bg: #FDE3E1;
+    --star: #F2A900;
+    --mark: #FFD84D;
+    --shadow: 0 2px 0 rgba(28, 42, 39, .08), 0 8px 24px rgba(28, 42, 39, .06);
+    --r: 22px;
+    --font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1715; --surface: #18231F; --surface-2: #1F2C28; --ink: #E4EEEA; --muted: #9DB2AC; --line: #2B3B36;
+      --accent: #FF7447; --accent-ink: #1A0C06; --audio: #7FA6FF; --ok: #44CC8A; --ok-bg: #173A2A; --bad: #FF6F66; --bad-bg: #3F1D1B;
+      --star: #FFC433; --mark: #8C7200; --shadow: 0 2px 0 rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1715; --surface: #18231F; --surface-2: #1F2C28; --ink: #E4EEEA; --muted: #9DB2AC; --line: #2B3B36;
+    --accent: #FF7447; --accent-ink: #1A0C06; --audio: #7FA6FF; --ok: #44CC8A; --ok-bg: #173A2A; --bad: #FF6F66; --bad-bg: #3F1D1B;
+    --star: #FFC433; --mark: #8C7200; --shadow: 0 2px 0 rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font: 500 18px/1.4 var(--font);
+    -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none;
+    touch-action: manipulation; overscroll-behavior: none;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--audio); outline-offset: 3px; }
+  [hidden] { display: none !important; }
+
+  #app {
+    min-height: 100%; max-width: 1100px; margin: 0 auto;
+    padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+    padding-block: calc(env(safe-area-inset-top) + 12px) calc(env(safe-area-inset-bottom) + 20px);
+    display: flex; flex-direction: column; gap: 20px;
+  }
+
+  /* Верхняя полоса тренировки */
+  .bar { display: flex; align-items: center; gap: 14px; min-height: 44px; }
+  .progress { flex: 1; height: 12px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--ok); border-radius: inherit; transition: width .25s linear; }
+  .stars { font-weight: 800; font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stars b { color: var(--star); }
+  .exit { border: 0; background: none; color: var(--muted); font-size: 16px; padding: 8px 4px; }
+
+  /* Кнопки */
+  .btn {
+    border: 0; border-radius: 999px; padding: 18px 34px; min-height: 64px; font-weight: 800; font-size: 22px;
+    background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn.audio { background: var(--audio); color: #fff; }
+  .btn.small { min-height: 48px; padding: 10px 20px; font-size: 18px; }
+  .btn:disabled { opacity: .45; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+
+  /* Главный экран */
+  .home { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 26px; }
+  .logo { font-size: clamp(44px, 8vw, 76px); font-weight: 900; letter-spacing: -.02em; line-height: 1; text-wrap: balance; }
+  .logo span { background: linear-gradient(transparent 62%, var(--mark) 62%, var(--mark) 88%, transparent 88%); padding: 0 .08em; }
+  .hello { color: var(--muted); font-size: 22px; margin: 0; }
+  .chips { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .chip { background: var(--surface); border-radius: 999px; padding: 10px 18px; font-weight: 700; box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+  .note { color: var(--muted); max-width: 32ch; margin: 0; text-wrap: balance; }
+
+  /* Вступление к игре */
+  .intro { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 22px; }
+  .intro .big { font-size: 88px; line-height: 1; }
+  .intro h2 { margin: 0; font-size: clamp(36px, 6vw, 54px); font-weight: 900; }
+  .intro p { margin: 0; max-width: 30ch; font-size: 22px; color: var(--muted); text-wrap: balance; }
+  .mode { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; border-radius: 999px; padding: 8px 16px; }
+  .mode.read { background: var(--ok-bg); color: var(--ok); }
+  .mode.audio { background: color-mix(in srgb, var(--audio) 16%, transparent); color: var(--audio); }
+
+  /* Задание */
+  .task { flex: 1; display: flex; flex-direction: column; gap: 22px; }
+  .prompt {
+    background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow);
+    min-height: 150px; padding: 26px 28px; display: grid; place-content: center; text-align: center; gap: 14px;
+  }
+  .sentence { font-size: clamp(26px, 4.4vw, 42px); font-weight: 800; line-height: 1.3; margin: 0; text-wrap: balance; }
+  .ask { font-size: clamp(22px, 3.4vw, 30px); font-weight: 800; margin: 0; color: var(--muted); }
+  .hint { margin: 0; color: var(--muted); font-size: 18px; }
+  mark {
+    background: linear-gradient(transparent 58%, var(--mark) 58%); color: inherit; padding: 0 .06em;
+    text-decoration: underline wavy var(--accent); text-decoration-thickness: 3px; text-underline-offset: 8px;
+  }
+  .timer { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; width: min(420px, 70vw); margin: 0 auto; }
+  .timer i { display: block; height: 100%; background: var(--accent); width: 100%; transform-origin: left; }
+  .listen { font-size: 64px; line-height: 1; }
+  .listen.on { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.12); } }
+
+  .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 640px) { .options { grid-template-columns: 1fr; } }
+  .opt {
+    border: 4px solid transparent; background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow);
+    min-height: 130px; padding: 18px 12px; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 4px 6px;
+    font-size: clamp(34px, 4.6vw, 50px); line-height: 1.15;
+  }
+  .opt.ok { border-color: var(--ok); background: var(--ok-bg); }
+  .opt.bad { border-color: var(--bad); background: var(--bad-bg); animation: shake .35s; }
+  .opt:disabled { opacity: 1; }
+  @keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+
+  .field { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .cell {
+    aspect-ratio: 1; max-width: 100%; border: 4px solid transparent; background: var(--surface); border-radius: 20px; box-shadow: var(--shadow);
+    font-size: clamp(38px, 7vw, 64px); line-height: 1; display: grid; place-items: center; position: relative;
+  }
+  .cell.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+  .cell.need { border: 4px dashed var(--ok); }
+  .cell.sel.need, .cell.hit { border: 4px solid var(--ok); background: var(--ok-bg); }
+  .cell.bad { border-color: var(--bad); background: var(--bad-bg); }
+  .cell.bad::after { content: "✕"; position: absolute; top: 4px; right: 10px; font-size: 22px; color: var(--bad); font-weight: 900; }
+
+  .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .feedback { text-align: center; font-size: 26px; font-weight: 800; min-height: 36px; margin: 0; }
+  .feedback.ok { color: var(--ok); }
+  .feedback.bad { color: var(--bad); }
+  .pop { display: inline-block; animation: pop .5s ease-out; }
+  @keyframes pop { 0% { transform: scale(.4); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
+
+  /* Итог */
+  .done { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 20px; }
+  .done h2 { margin: 0; font-size: clamp(34px, 6vw, 52px); font-weight: 900; }
+  .bigstars { font-size: 60px; font-weight: 900; color: var(--star); font-variant-numeric: tabular-nums; }
+  .sync { color: var(--muted); font-size: 16px; margin: 0; }
+
+  /* Экран родителя */
+  .parent { display: flex; flex-direction: column; gap: 18px; -webkit-user-select: text; user-select: text; }
+  .parent h2 { margin: 0; font-size: 30px; font-weight: 900; }
+  .card { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .card h3 { margin: 0; font-size: 20px; font-weight: 800; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .kv div { background: var(--surface-2); border-radius: 14px; padding: 12px 14px; }
+  .kv b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+  .kv span { color: var(--muted); font-size: 15px; }
+  label { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 16px; flex: 1 1 240px; }
+  input, select {
+    font: inherit; font-weight: 500; padding: 12px 14px; border-radius: 12px; border: 2px solid var(--line);
+    background: var(--surface-2); color: var(--ink); min-height: 48px; width: 100%;
+  }
+  .muted { color: var(--muted); font-size: 15px; margin: 0; }
+  .status.ok { color: var(--ok); }
+  .status.bad { color: var(--bad); }
+  .tbl-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 700; font-size: 14px; }
+
+  /* Вход для родителя: долгое нажатие */
+  .gear {
+    position: fixed; right: max(10px, env(safe-area-inset-right)); bottom: calc(env(safe-area-inset-bottom) + 10px);
+    width: 44px; height: 44px; border-radius: 50%; border: 0; background: none; color: var(--muted); opacity: .45; font-size: 22px;
+  }
+  .gear.hold { opacity: 1; background: conic-gradient(var(--accent) var(--p, 0%), transparent 0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<p>Поймай смысл<br><small style="font-weight:400;font-size:16px">Тренажёр скоро будет здесь</small></p>
+<main id="app" aria-live="polite"></main>
+<button class="gear" id="gear" aria-label="Для взрослых: удерживайте 2 секунды">⚙︎</button>
+<script src="content.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
