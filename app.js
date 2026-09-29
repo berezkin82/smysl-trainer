@@ -11,6 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
+  const BUILD = '29.09 18:15'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
   const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
@@ -384,7 +385,8 @@
           ? '<p class="note">Сегодняшняя тренировка уже пройдена. Приходи завтра!</p>'
           : '<button class="btn primary" id="start">▶ Начать · 10 минут</button>'}
         ${!TTS.ok && S.settings.mode !== 'read' ? '<p class="note">Голос не найден: пока играем только глазами.</p>' : ''}
-      </section>`;
+      </section>
+      <p class="build">версия ${esc(BUILD)}</p>`;
     const b = $('#start'); if (b) b.onclick = () => runSession();
   }
 

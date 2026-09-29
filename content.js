@@ -122,7 +122,7 @@
     F4() {
       const S = pick(SHAPES), [C1, C2] = pickDistinct(COLORS, 2);
       return {
-        text: `Все ${S.pl} ${C1.pl}, кроме одного ${C2.gm}.`, trap: ['кроме', 'одного'],
+        text: `Все ${S.pl} ${C1.pl}, кроме 1 ${C2.gm}.`, say: `Все ${S.pl} ${C1.pl}, кроме одного ${C2.gm}.`, trap: ['кроме', '1'],
         ok: sc(shuffle(rep(C1[S.id], 3).concat(C2[S.id]))),
         bad: [sc(rep(C1[S.id], 4)), sc(shuffle(rep(C2[S.id], 3).concat(C1[S.id])))],
       };
@@ -238,7 +238,7 @@
       return { field: 'animal', text: 'Нажми на всех, кто не умеет летать и не живёт в воде.', trap: ['не'],
         pred: i => !i.fly && !i.water, near: i => !!i.fly || !!i.water };
     },
-    A6() { return { field: 'animal', text: 'Нажми только на одного, кто живёт в воде.', trap: ['одного'], pred: i => !!i.water, exact: 1 }; },
+    A6() { return { field: 'animal', text: 'Нажми только на 1 животное, которое живёт в воде.', say: 'Нажми только на одно животное, которое живёт в воде.', trap: ['1'], pred: i => !!i.water, exact: 1 }; },
     P1() { return { field: 'food', text: 'Нажми на все фрукты.', trap: ['фрукты'], pred: i => !!i.fruit }; },
     P2() { return { field: 'food', text: 'Нажми на все овощи.', trap: ['овощи'], pred: i => !i.fruit }; },
     P3() {
