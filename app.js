@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '29.09 18:15'; // проставляет .claude/deploy.sh
+  const BUILD = '29.09 18:31'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
   const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
@@ -87,12 +87,12 @@
       if (!sess || !sess.active || document.hidden) return;
       sess.elapsed += Math.min(dt, 1000);
       const bar = $('.progress i');
-      if (bar) bar.style.width = clamp(sess.elapsed / SESSION_MS * 100, 0, 100) + '%';
+      if (bar) bar.style.width = clamp(sess.elapsed / sess.len * 100, 0, 100) + '%';
     }, 250);
   }
 
-  function effectiveMode(planMode) {
-    const m = S.settings.mode;
+  function effectiveMode(planMode, override) {
+    const m = override || S.settings.mode;
     const want = m === 'mix' ? planMode : m;
     return want === 'audio' && !TTS.ok ? 'read' : want;
   }
@@ -100,7 +100,8 @@
   function barHTML() {
     return `<div class="bar">
       <button class="exit" id="exit">✕ Выйти</button>
-      <div class="progress" aria-label="Сколько тренировки пройдено"><i style="width:${clamp(sess.elapsed / SESSION_MS * 100, 0, 100)}%"></i></div>
+      ${sess.test ? '<span class="testbadge">ТЕСТ</span>' : ''}
+      <div class="progress" aria-label="Сколько тренировки пройдено"><i style="width:${clamp(sess.elapsed / sess.len * 100, 0, 100)}%"></i></div>
       <div class="stars"><b>★</b> <span id="sstars">${sess.stars}</span></div>
     </div>`;
   }
@@ -118,17 +119,30 @@
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
   }
 
+  // opts.test — тестовая тренировка взрослого: { game: 'all'|'flash'|'robot', level, mode, minutes }.
+  // У неё свои уровни и время показа; прогресс ребёнка не меняется, ответы в логах помечены test.
   async function runSession(opts = {}) {
     TTS.unlock();
-    const my = sess = { id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo };
+    const t = opts.test || null;
+    const my = sess = {
+      id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo,
+      test: t, len: t ? t.minutes * 60e3 : SESSION_MS,
+      levels: t ? { flash: t.level, robot: t.level } : S.levels,
+      hist: t ? { flash: [], robot: [] } : S.hist,
+      expo: 1,
+    };
     startTicker(); requestWake();
     try {
-      const plan = opts.demo ? [[opts.demo, 'read']] : PLAN;
-      for (let b = 0; b < plan.length && sess.elapsed < SESSION_MS; b++) {
+      const plan = opts.demo ? [[opts.demo, 'read']]
+        : t && t.game !== 'all' ? PLAN.map(([, m]) => [t.game, m])
+        : PLAN;
+      for (let b = 0; b < plan.length && sess.elapsed < my.len; b++) {
         const [game, planMode] = plan[b];
-        const mode = effectiveMode(planMode);
+        const mode = effectiveMode(planMode, t && t.mode);
         if (!opts.demo) await showIntro(my, game, mode, b);
-        const blockEnd = Math.min(sess.elapsed + BLOCK_MS, SESSION_MS);
+        // В коротком тесте блоки делят время поровну, чтобы успеть увидеть все игры.
+        const blockMs = t ? my.len / plan.length : BLOCK_MS;
+        const blockEnd = Math.min(sess.elapsed + blockMs, my.len);
         do {
           my.active = true;
           await (game === 'flash' ? playFlash : playRobot)(my, mode);
@@ -146,7 +160,8 @@
     sess = null; TTS.stop();
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
     if (!my || my.demo) { renderHome(); return; }
-    if (!aborted) {
+    if (!aborted && my.test) renderDone(my);
+    else if (!aborted) {
       const today = st.day();
       if (!S.days.includes(today)) S.days.push(today);
       else if (S.extraDay === today) S.extraDay = '';
@@ -175,19 +190,26 @@
   function finishTask(my, game, mode, task, r) {
     const first = r.correct && r.attempts === 1 && r.replays === 0;
     my.n++;
-    if (first) { my.first++; my.stars++; if (!my.demo) S.stars++; }
+    if (first) { my.first++; my.stars++; if (!my.demo && !my.test) S.stars++; }
     if (!my.demo) {
-      st.addRecord({
+      const rec = {
         id: `${my.id}-${++my.seq}`, sid: my.id, game, tpl: task.tpl, level: task.level, mode,
         text: task.text, trap: task.trap, expo: r.expo || null, read: r.readMs || null, replays: r.replays, attempts: r.attempts,
         correct: r.correct, first, rt: r.rt,
-      });
-      const h = S.hist[game];
+      };
+      if (my.test) rec.test = true;
+      st.addRecord(rec);
+      // Уровни и история: у ребёнка — сохранённые, в тесте — свои на время сессии.
+      const L = my.levels, H = my.hist, h = H[game];
       h.push(first ? 1 : 0); if (h.length > 6) h.shift();
       const sum = a => a.reduce((x, y) => x + y, 0);
-      if (h.length >= 6 && sum(h) >= 5 && S.levels[game] < 3) { S.levels[game]++; S.hist[game] = []; r.levelUp = true; }
-      else if (h.length >= 4 && sum(h.slice(-4)) <= 1 && S.levels[game] > 1) { S.levels[game]--; S.hist[game] = []; }
-      if (game === 'flash' && mode === 'read') S.expo = clamp(first ? S.expo * 0.92 : r.correct ? S.expo : S.expo * 1.15, 0.45, 2);
+      if (h.length >= 6 && sum(h) >= 5 && L[game] < 3) { L[game]++; H[game] = []; r.levelUp = true; }
+      else if (h.length >= 4 && sum(h.slice(-4)) <= 1 && L[game] > 1) { L[game]--; H[game] = []; }
+      if (game === 'flash' && mode === 'read') {
+        const e = my.test ? my.expo : S.expo;
+        const ne = clamp(first ? e * 0.92 : r.correct ? e : e * 1.15, 0.45, 2);
+        if (my.test) my.expo = ne; else S.expo = ne;
+      }
       st.save();
     }
     const s = $('#sstars');
@@ -214,10 +236,10 @@
 
   // ---------- «Вспышка» ----------
   async function playFlash(my, mode) {
-    const task = C.flash(S.levels.flash);
+    const task = C.flash(my.levels.flash);
     // Время показа — под скорость чтения второклассника (~50 слов/мин) плюс запас; «Понятно!» прячет раньше.
     const words = task.text.split(/\s+/).length;
-    const expo = Math.round(clamp((1500 + words * 1100) * S.expo, 3000, 16000));
+    const expo = Math.round(clamp((1500 + words * 1100) * (my.test ? my.expo : S.expo), 3000, 16000));
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
@@ -280,7 +302,7 @@
 
   // ---------- «Робот» ----------
   async function playRobot(my, mode) {
-    const task = C.robot(S.levels.robot);
+    const task = C.robot(my.levels.robot);
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
@@ -394,7 +416,7 @@
     const s = streak();
     app.innerHTML = `
       <section class="done">
-        <h2>Тренировка закончена!</h2>
+        <h2>${my.test ? 'Тестовая тренировка закончена' : 'Тренировка закончена!'}</h2>
         <div class="bigstars"><span class="pop">★ ${my.stars}</span></div>
         <p class="note">С первого раза: ${my.first} из ${my.n}</p>
         ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
@@ -422,7 +444,7 @@
   function renderParent() {
     if (sess) endSession(true);
     const today = st.day();
-    const recs = S.records;
+    const recs = S.records.filter(r => !r.test);
     const todayRecs = recs.filter(r => r.day === today);
     const pct = a => (a.length ? Math.round(a.filter(r => r.first).length / a.length * 100) + '%' : '—');
     const days = [...new Set(recs.map(r => r.day))].sort().slice(-7).reverse();
@@ -430,6 +452,8 @@
     recs.slice(-300).filter(r => !r.first).forEach(r => (r.trap || []).forEach(w => { const k = w.toLowerCase(); miss[k] = (miss[k] || 0) + 1; }));
     const topMiss = Object.entries(miss).sort((a, b) => b[1] - a[1]).slice(0, 6);
     const set = S.settings;
+    const T = Object.assign({ game: 'all', level: 1, mode: 'mix', minutes: 2 }, set.test);
+    const opt = (v, cur, label) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${label}</option>`;
 
     app.innerHTML = `
       <section class="parent">
@@ -477,6 +501,22 @@
         </div>
 
         <div class="card">
+          <h3>Проверка для взрослых</h3>
+          <p class="muted">Тестовая тренировка не меняет звёзды, уровни и статистику ребёнка. Её ответы попадают в логи с пометкой test.</p>
+          <div class="row">
+            <label>Игра<select id="t-game">${opt('all', T.game, 'Все по очереди')}${opt('flash', T.game, 'Вспышка')}${opt('robot', T.game, 'Робот')}</select></label>
+            <label>Уровень<select id="t-level">${opt(1, T.level, '1 — простой')}${opt(2, T.level, '2 — не, кроме, только')}${opt(3, T.level, '3 — сложный')}</select></label>
+            <label>Режим<select id="t-mode">${opt('mix', T.mode, 'Смешанный')}${opt('read', T.mode, 'Глазами')}${opt('audio', T.mode, 'На слух')}</select></label>
+            <label>Длительность<select id="t-min">${opt(2, T.minutes, '2 минуты')}${opt(10, T.minutes, '10 минут')}</select></label>
+          </div>
+          <div class="row">
+            <button class="btn primary small" id="t-start">▶ Тестовая тренировка</button>
+            <button class="btn small danger" id="t-reset">Сбросить прогресс ребёнка</button>
+          </div>
+          <p class="muted">Сброс обнуляет звёзды, уровни, серию дней и время показа, а прошлые ответы помечает как тестовые. Имя, голос и токен сохраняются.</p>
+        </div>
+
+        <div class="card">
           <h3>Отправка логов в GitHub</h3>
           <div class="row">
             <label>Репозиторий<input id="f-repo" value="${esc(set.repo)}" placeholder="владелец/репозиторий" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -510,6 +550,26 @@
       const r = await st.sync();
       status(r.ok ? `Готово: отправлено ${r.sent}, не отправлено ${st.pendingCount()}` : 'Не получилось: ' + r.text, r.ok);
     };
+    const readTest = () => {
+      set.test = { game: $('#t-game').value, level: +$('#t-level').value, mode: $('#t-mode').value, minutes: +$('#t-min').value };
+      st.save();
+      return set.test;
+    };
+    ['#t-game', '#t-level', '#t-mode', '#t-min'].forEach(id => { $(id).onchange = readTest; });
+    $('#t-start').onclick = () => { saveSettings(); runSession({ test: readTest() }); };
+    $('#t-reset').onclick = e => {
+      const b = e.currentTarget;
+      if (!b.dataset.armed) {
+        b.dataset.armed = '1'; b.textContent = 'Точно сбросить? Нажмите ещё раз';
+        setTimeout(() => { if (b.isConnected && b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Сбросить прогресс ребёнка'; } }, 4000);
+        return;
+      }
+      Object.assign(S, { levels: { flash: 1, robot: 1 }, hist: { flash: [], robot: [] }, expo: 1, stars: 0, days: [], extraDay: '' });
+      S.records.forEach(r => { r.test = true; });
+      st.save();
+      renderParent();
+      status('Прогресс сброшен: всё как в первый день', true);
+    };
     $('#f-copy').onclick = async () => {
       const text = JSON.stringify(S.records.filter(r => r.day === today), null, 1);
       try { await navigator.clipboard.writeText(text); status('Скопировано: ' + todayRecs.length + ' записей', true); }
@@ -520,15 +580,17 @@
   // Вход для взрослых — удерживать шестерёнку 2 секунды.
   function bindGear() {
     const g = $('#gear');
-    let t0 = 0, raf = 0;
-    const stop = () => { cancelAnimationFrame(raf); t0 = 0; g.classList.remove('hold'); g.style.removeProperty('--p'); };
+    // Срабатывание — по таймеру; кольцо на кадрах анимации только показывает прогресс.
+    let t0 = 0, raf = 0, timer = 0;
+    const stop = () => { cancelAnimationFrame(raf); clearTimeout(timer); t0 = 0; g.classList.remove('hold'); g.style.removeProperty('--p'); };
     const loop = () => {
-      const p = (performance.now() - t0) / 2000;
-      g.style.setProperty('--p', Math.min(p * 100, 100) + '%');
-      if (p >= 1) { stop(); renderParent(); return; }
+      g.style.setProperty('--p', Math.min((performance.now() - t0) / 20, 100) + '%');
       raf = requestAnimationFrame(loop);
     };
-    g.addEventListener('pointerdown', e => { e.preventDefault(); t0 = performance.now(); g.classList.add('hold'); loop(); });
+    g.addEventListener('pointerdown', e => {
+      e.preventDefault(); t0 = performance.now(); g.classList.add('hold'); loop();
+      timer = setTimeout(() => { stop(); renderParent(); }, 2000);
+    });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => g.addEventListener(ev, stop));
     g.addEventListener('contextmenu', e => e.preventDefault());
   }

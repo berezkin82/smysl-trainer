@@ -6,7 +6,7 @@
   const KEY = 'smysl.v1';
   const MAX_RECORDS = 5000;
   const DEFAULTS = {
-    settings: { name: '', mode: 'mix', voice: '', repo: '', token: '' },
+    settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },
     records: [],          // все ответы; r.synced — отправлен ли в GitHub
     levels: { flash: 1, robot: 1 },
     hist: { flash: [], robot: [] },   // последние «с первого раза» для смены уровня
