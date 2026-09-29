@@ -67,7 +67,7 @@
   // ---------- Разметка ----------
   function markTrap(text, trap) {
     const set = new Set((trap || []).map(w => w.toLowerCase()));
-    return text.split(/([А-Яа-яЁё]+)/).map(p => (set.has(p.toLowerCase()) ? `<mark>${esc(p)}</mark>` : esc(p))).join('');
+    return text.split(/([А-Яа-яЁё0-9]+)/).map(p => (set.has(p.toLowerCase()) ? `<mark>${esc(p)}</mark>` : esc(p))).join('');
   }
   const sentence = (text, trap) => `<p class="sentence">${trap ? markTrap(text, trap) : esc(text)}</p>`;
   const sceneHTML = s => s.items.map(e => `<span>${e}</span>`).join('');
@@ -242,7 +242,7 @@
         if (readMs === null) readMs = Math.round(performance.now() - t0);
       } else {
         prompt.innerHTML = '<div class="listen on">🔊</div><p class="hint">Слушай внимательно</p>';
-        await TTS.speak(task.text);
+        await TTS.speak(task.say || task.text);
       }
       alive(my);
       prompt.innerHTML = '<p class="ask">Какая картинка подходит?</p>';
@@ -266,7 +266,7 @@
       if (!correct) btn.disabled = true;
       if (!correct && attempts < 2) {
         prompt.innerHTML = sentence(task.text, task.trap) + '<p class="hint">Посмотри на подчёркнутые слова и попробуй ещё раз</p>';
-        if (mode === 'audio') TTS.speak(task.text);
+        if (mode === 'audio') TTS.speak(task.say || task.text);
       }
     }
     opts.onclick = null; again.onclick = null; again.hidden = true;
@@ -304,7 +304,7 @@
       await new Promise(res => { $('#got').onclick = res; });
     } else {
       prompt.innerHTML = '<div class="listen on">🔊</div><p class="hint">Слушай команду</p>';
-      await TTS.speak(task.text);
+      await TTS.speak(task.say || task.text);
     }
     alive(my);
     prompt.innerHTML = ASK;
@@ -322,7 +322,7 @@
       if (busy) return;
       replays++; busy = true; again.disabled = true;
       if (mode === 'read') { prompt.innerHTML = sentence(task.text); await wait(2500); }
-      else { prompt.innerHTML = '<div class="listen on">🔊</div>'; await TTS.speak(task.text); }
+      else { prompt.innerHTML = '<div class="listen on">🔊</div>'; await TTS.speak(task.say || task.text); }
       if (sess !== my) return;
       prompt.innerHTML = ASK; busy = false; again.disabled = false;
     };
@@ -337,7 +337,7 @@
         busy = true;
         cells.forEach((c, i) => { if (sel.has(i) && !task.pred(task.items[i])) c.classList.add('bad'); });
         prompt.innerHTML = sentence(task.text, task.trap) + '<p class="hint">Посмотри на подчёркнутые слова и исправь</p>';
-        if (mode === 'audio') TTS.speak(task.text);
+        if (mode === 'audio') TTS.speak(task.say || task.text);
         await wait(1200); alive(my);
         cells.forEach(c => c.classList.remove('bad'));
         busy = false;

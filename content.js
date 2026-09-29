@@ -65,7 +65,9 @@
     if (d >= 2 && d <= 4) return noun.f[1];
     return noun.f[2];
   }
+  // На экране числа цифрами (cntD), для голоса — словами (cnt), чтобы синтезатор не ошибался в роде: «две груши».
   const cnt = (noun, n) => numWord(n, noun.g) + ' ' + form(noun, n);
+  const cntD = (noun, n) => n + ' ' + form(noun, n);
 
   const COLORS = [
     { id: 'red', pl: 'красные', gpl: 'красных', gm: 'красного', circle: '🔴', square: '🟥', heart: '❤️' },
@@ -87,9 +89,9 @@
   const FLASH = {
     // Сколько предметов одного вида.
     F1() {
-      const cat = pick(CATS), a = pick(N[cat]), n = 2 + rnd(4);
+      const cat = pick(CATS), a = pick(N[cat]), n = 2 + rnd(4), loc = pick(LOC[cat]);
       return {
-        text: `${pick(LOC[cat])} ${cnt(a, n)}.`, trap: [numWord(n, a.g)],
+        text: `${loc} ${cntD(a, n)}.`, say: `${loc} ${cnt(a, n)}.`, trap: [String(n)],
         ok: sc(rep(a.e, n)), bad: [sc(rep(a.e, n - 1)), sc(rep(a.e, n + 1))],
       };
     },
@@ -99,8 +101,9 @@
       const [x, y] = pickDistinct([1, 2, 3, 4], 2);
       const y2 = y < 4 ? y + 1 : y - 1;
       const s = (p, q) => sc(rep(A.e, p).concat(rep(B.e, q)));
+      const loc = pick(LOC[cat]);
       return {
-        text: `${pick(LOC[cat])} ${cnt(A, x)} и ${cnt(B, y)}.`, trap: [numWord(x, A.g), numWord(y, B.g)],
+        text: `${loc} ${cntD(A, x)} и ${cntD(B, y)}.`, say: `${loc} ${cnt(A, x)} и ${cnt(B, y)}.`, trap: [String(x), String(y)],
         ok: s(x, y), bad: [s(y, x), s(x, y2)],
       };
     },
@@ -149,9 +152,9 @@
     },
     // Число + отрицание в одной фразе.
     F7() {
-      const cat = pick(CATS), [A, B] = pickDistinct(N[cat], 2), n = 2 + rnd(3);
+      const cat = pick(CATS), [A, B] = pickDistinct(N[cat], 2), n = 2 + rnd(3), loc = pick(LOC[cat]);
       return {
-        text: `${pick(LOC[cat])} ${cnt(A, n)}, а ${B.f[2]} нет.`, trap: [numWord(n, A.g), 'нет'],
+        text: `${loc} ${cntD(A, n)}, а ${B.f[2]} нет.`, say: `${loc} ${cnt(A, n)}, а ${B.f[2]} нет.`, trap: [String(n), 'нет'],
         ok: sc(rep(A.e, n)), bad: [sc(rep(A.e, n).concat(B.e)), sc(rep(A.e, n + 1))],
       };
     },
@@ -213,7 +216,7 @@
     },
     R6() {
       const s = pick(SHAPES), c = pick(COLORS), n = pick([2, 3]);
-      return { field: 'shape', text: `Нажми на ${numWord(n, 'm')} ${c.gpl} ${s.gs}.`, trap: [numWord(n, 'm')],
+      return { field: 'shape', text: `Нажми на ${n} ${c.gpl} ${s.gs}.`, say: `Нажми на ${numWord(n, 'm')} ${c.gpl} ${s.gs}.`, trap: [String(n)],
         pred: i => i.shape === s.id && i.color === c.id, exact: n };
     },
     R7() {
@@ -254,7 +257,7 @@
         pred: i => !i.fruit && i.color === c, near: i => i.color === c && !!i.fruit };
     },
     P6() {
-      return { field: 'food', text: 'Нажми на два фрукта, которые не жёлтые.', trap: ['два', 'не'],
+      return { field: 'food', text: 'Нажми на 2 фрукта, которые не жёлтые.', say: 'Нажми на два фрукта, которые не жёлтые.', trap: ['2', 'не'],
         pred: i => !!i.fruit && i.color !== 'yellow', exact: 2 };
     },
   };
