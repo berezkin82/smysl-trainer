@@ -34,11 +34,10 @@
     init() {
       if (!('speechSynthesis' in window)) return;
       const choose = () => {
-        this.list = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang));
-        this.voice = this.list.find(v => v.voiceURI === S.settings.voice)
-          || this.list.find(v => /enhanced|premium|улучш/i.test(v.name))
-          || this.list.find(v => /milena|милена/i.test(v.name))
-          || this.list[0] || null;
+        // Сначала качественные голоса: компактные на iPad звучат сдавленно.
+        const rank = v => (/premium|высок/i.test(v.name + v.voiceURI) ? 0 : /enhanced|улучш/i.test(v.name + v.voiceURI) ? 1 : 2);
+        this.list = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)).sort((a, b) => rank(a) - rank(b));
+        this.voice = this.list.find(v => v.voiceURI === S.settings.voice) || this.list[0] || null;
         this.ok = !!this.voice;
       };
       choose();
@@ -179,7 +178,7 @@
     if (!my.demo) {
       st.addRecord({
         id: `${my.id}-${++my.seq}`, sid: my.id, game, tpl: task.tpl, level: task.level, mode,
-        text: task.text, trap: task.trap, expo: r.expo || null, replays: r.replays, attempts: r.attempts,
+        text: task.text, trap: task.trap, expo: r.expo || null, read: r.readMs || null, replays: r.replays, attempts: r.attempts,
         correct: r.correct, first, rt: r.rt,
       });
       const h = S.hist[game];
@@ -206,7 +205,7 @@
       : 'Ничего! Посмотри, как было правильно.';
     if (levelUp) fb.innerHTML += '<br><span class="pop">🚀 Новый уровень!</span>';
     const next = $('#next');
-    if (first && !levelUp) { await wait(1600); alive(my); return; }
+    if (first && !levelUp) { await wait(2200); alive(my); return; }
     next.hidden = false;
     await new Promise(res => { next.onclick = res; });
     alive(my);
@@ -215,7 +214,9 @@
   // ---------- «Вспышка» ----------
   async function playFlash(my, mode) {
     const task = C.flash(S.levels.flash);
-    const expo = Math.round(clamp((900 + 60 * task.text.length) * S.expo, 1500, 9000));
+    // Время показа — под скорость чтения второклассника (~50 слов/мин) плюс запас; «Понятно!» прячет раньше.
+    const words = task.text.split(/\s+/).length;
+    const expo = Math.round(clamp((1500 + words * 1100) * S.expo, 3000, 16000));
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
@@ -228,15 +229,17 @@
       </section>`;
     bindExit();
     const prompt = $('#prompt'), opts = $('#opts'), again = $('#again');
-    let replays = 0, attempts = 0, correct = false, rt = null, busy = false;
+    let replays = 0, attempts = 0, correct = false, rt = null, busy = false, readMs = null;
 
     const present = async () => {
       busy = true; again.disabled = true; opts.hidden = true;
       if (mode === 'read') {
-        prompt.innerHTML = sentence(task.text) + '<div class="timer"><i></i></div>';
+        prompt.innerHTML = sentence(task.text) + '<div class="timer"><i></i></div><div class="actions"><button class="btn primary small" id="got">Понятно!</button></div>';
         const bar = $('.timer i', prompt);
         bar.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: expo, easing: 'linear', fill: 'forwards' });
-        await wait(expo);
+        const t0 = performance.now();
+        await Promise.race([wait(expo), new Promise(res => { $('#got', prompt).onclick = res; })]);
+        if (readMs === null) readMs = Math.round(performance.now() - t0);
       } else {
         prompt.innerHTML = '<div class="listen on">🔊</div><p class="hint">Слушай внимательно</p>';
         await TTS.speak(task.text);
@@ -269,7 +272,7 @@
     opts.onclick = null; again.onclick = null; again.hidden = true;
     [...opts.children].forEach((b, i) => { b.disabled = true; if (C.sceneKey(task.options[i]) === okKey) b.classList.add('ok'); });
     prompt.innerHTML = sentence(task.text, task.trap);
-    const r = { correct, attempts, replays, rt, expo: mode === 'read' ? expo : null };
+    const r = { correct, attempts, replays, rt, expo: mode === 'read' ? expo : null, readMs };
     const first = finishTask(my, 'flash', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
   }
@@ -280,7 +283,7 @@
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
-        <div class="field" id="field" hidden>${task.items.map((it, i) => `<button class="cell" data-i="${i}" aria-pressed="false">${it.e}</button>`).join('')}</div>
+        <div class="field" id="field" style="--cols:${Math.ceil(task.items.length / 2)}" hidden>${task.items.map((it, i) => `<button class="cell" data-i="${i}" aria-pressed="false">${it.e}</button>`).join('')}</div>
         <p class="feedback" id="fb"></p>
         <div class="actions">
           <button class="btn small" id="again" hidden>${mode === 'audio' ? '🔊 Послушать ещё' : '👀 Подсмотреть'}</button>

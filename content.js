@@ -179,10 +179,11 @@
     { e: '🍌', fruit: 1, color: 'yellow' }, { e: '🍋', fruit: 1, color: 'yellow' },
     { e: '🍊', fruit: 1, color: 'orange' },
     { e: '🥕', color: 'orange', gen: 'морковки' }, { e: '🥒', color: 'green', gen: 'огурцов' },
-    { e: '🍅', color: 'red', gen: 'помидоров' }, { e: '🥔', color: 'brown', gen: 'картошки' },
+    { e: '🥔', color: 'brown', gen: 'картошки' },
     { e: '🥦', color: 'green', gen: 'брокколи' }, { e: '🍆', color: 'purple', gen: 'баклажанов' },
   ];
-  const FOOD_COLORS = { red: 'красные', yellow: 'жёлтые', green: 'зелёные' };
+  // 🍅 убран: на iPad его не отличить от 🍎, а «овощ или фрукт» — спорный вопрос, а не смысл фразы.
+  const FOOD_COLORS = { red: 'красные', yellow: 'жёлтые', green: 'зелёные', orange: 'оранжевые' };
 
   const shapeItem = () => { const s = pick(SHAPES), c = pick(COLORS); return { e: c[s.id], shape: s.id, color: c.id }; };
   const FIELDS = {
@@ -248,7 +249,7 @@
         pred: i => !!i.fruit && i.color !== c, near: i => !!i.fruit && i.color === c };
     },
     P5() {
-      const c = pick(['red', 'green']);
+      const c = pick(['green', 'orange']);
       return { field: 'food', text: `Нажми только на ${FOOD_COLORS[c]} овощи.`, trap: ['только'],
         pred: i => !i.fruit && i.color === c, near: i => i.color === c && !!i.fruit };
     },
