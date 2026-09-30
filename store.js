@@ -167,5 +167,7 @@
       const m = {}; ls = { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } };
     }
     root.STORE = create(ls, root.fetch.bind(root));
+    // Просим «постоянное» хранилище: иначе система может вычистить настройки и токен при нехватке места.
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* нет API */ }
   }
 })(this);

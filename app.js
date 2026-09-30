@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '30.09 16:11'; // проставляет .claude/deploy.sh
+  const BUILD = '30.09 21:20'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
   const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
