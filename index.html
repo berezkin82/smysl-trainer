@@ -32,6 +32,7 @@
     --mark: #FFD84D;
     --shadow: 0 2px 0 rgba(28, 42, 39, .08), 0 8px 24px rgba(28, 42, 39, .06);
     --r: 22px;
+    --sky-top: #8CCBFF; --sky-bottom: #EAF6FF; --cloud: rgba(255, 255, 255, .9); --frame: #FFFFFF; --night: 0;
     --font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
     color-scheme: light;
   }
@@ -40,6 +41,7 @@
       --bg: #0F1715; --surface: #18231F; --surface-2: #1F2C28; --ink: #E4EEEA; --muted: #9DB2AC; --line: #2B3B36;
       --accent: #FF7447; --accent-ink: #1A0C06; --audio: #7FA6FF; --ok: #44CC8A; --ok-bg: #173A2A; --bad: #FF6F66; --bad-bg: #3F1D1B;
       --star: #FFC433; --mark: #8C7200; --shadow: 0 2px 0 rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      --sky-top: #081330; --sky-bottom: #1B2B52; --cloud: rgba(255, 255, 255, .07); --frame: #E4EEEA; --night: 1;
       color-scheme: dark;
     }
   }
@@ -47,6 +49,7 @@
     --bg: #0F1715; --surface: #18231F; --surface-2: #1F2C28; --ink: #E4EEEA; --muted: #9DB2AC; --line: #2B3B36;
     --accent: #FF7447; --accent-ink: #1A0C06; --audio: #7FA6FF; --ok: #44CC8A; --ok-bg: #173A2A; --bad: #FF6F66; --bad-bg: #3F1D1B;
     --star: #FFC433; --mark: #8C7200; --shadow: 0 2px 0 rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      --sky-top: #081330; --sky-bottom: #1B2B52; --cloud: rgba(255, 255, 255, .07); --frame: #E4EEEA; --night: 1;
     color-scheme: dark;
   }
 
@@ -97,6 +100,65 @@
   .hello { color: var(--muted); font-size: 22px; margin: 0; }
   .chips { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
   .chip { background: var(--surface); border-radius: 999px; padding: 10px 18px; font-weight: 700; box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+  .home .hello { color: var(--ink); font-weight: 700; }
+
+  /* Небо главного экрана: облака плывут, фото «парит» как в аэротрубе, снизу дует ветер */
+  .sky {
+    position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+    background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom) 75%);
+  }
+  .sky::before { /* звёзды — видны только в тёмной теме */
+    content: ""; position: absolute; inset: 0; opacity: var(--night);
+    background-image:
+      radial-gradient(2px 2px at 8% 14%, #fff 50%, transparent 51%), radial-gradient(2px 2px at 23% 32%, #fff 50%, transparent 51%),
+      radial-gradient(3px 3px at 41% 9%, #fff 50%, transparent 51%), radial-gradient(2px 2px at 64% 22%, #fff 50%, transparent 51%),
+      radial-gradient(2px 2px at 79% 7%, #fff 50%, transparent 51%), radial-gradient(3px 3px at 91% 29%, #fff 50%, transparent 51%),
+      radial-gradient(2px 2px at 13% 58%, #fff 50%, transparent 51%), radial-gradient(2px 2px at 86% 61%, #fff 50%, transparent 51%),
+      radial-gradient(2px 2px at 55% 44%, #fff 50%, transparent 51%), radial-gradient(3px 3px at 33% 76%, #fff 50%, transparent 51%);
+    animation: twinkle 4s ease-in-out infinite alternate;
+  }
+  @keyframes twinkle { to { filter: brightness(.55); } }
+  .cloud {
+    position: absolute; left: 0; width: 170px; height: 52px; border-radius: 99px; background: var(--cloud);
+    animation: drift var(--t, 60s) linear infinite; animation-delay: var(--d, 0s);
+  }
+  .cloud::before, .cloud::after { content: ""; position: absolute; background: inherit; border-radius: 50%; }
+  .cloud::before { width: 74px; height: 74px; left: 26px; top: -38px; }
+  .cloud::after { width: 96px; height: 96px; right: 20px; top: -52px; }
+  @keyframes drift {
+    from { transform: translateX(-240px) scale(var(--s, 1)); }
+    to { transform: translateX(calc(100vw + 60px)) scale(var(--s, 1)); }
+  }
+
+  .flyer {
+    border: 0; padding: 0; background: none; position: relative;
+    width: min(62vw, 480px, 48vh); aspect-ratio: 4 / 3; margin-block: 8px 18px;
+    animation: hover 3.2s ease-in-out infinite;
+  }
+  @keyframes hover { 50% { transform: translateY(-14px); } }
+  .flyer .frame {
+    position: absolute; inset: 0; border-radius: 28px; overflow: hidden; border: 6px solid var(--frame);
+    background: var(--sky-bottom); box-shadow: 0 18px 40px rgba(20, 60, 120, .28); transform: rotate(-3deg);
+    display: grid; place-items: center; font-size: clamp(64px, 10vw, 110px);
+  }
+  .flyer img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .flyer.spin .frame { animation: loop .9s ease-in-out; }
+  @keyframes loop { 50% { transform: rotate(177deg) scale(.8); } to { transform: rotate(357deg) scale(1); } }
+  .gust { /* струи ветра из-под «трубы» */
+    position: absolute; bottom: -26px; width: 4px; height: 34px; border-radius: 99px;
+    background: linear-gradient(transparent, var(--frame));
+    opacity: 0; animation: gust 1.4s ease-in infinite; animation-delay: var(--d, 0s);
+  }
+  @keyframes gust { 0% { transform: translateY(24px); opacity: 0; } 30% { opacity: .9; } 100% { transform: translateY(-30px); opacity: 0; } }
+  .burst {
+    position: absolute; left: 50%; top: 50%; font-size: 34px; pointer-events: none;
+    animation: burst .9s ease-out forwards;
+  }
+  @keyframes burst {
+    from { transform: translate(-50%, -50%) scale(.3); opacity: 1; }
+    to { transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.1); opacity: 0; }
+  }
+
   .build { margin: 0; text-align: center; color: var(--muted); font-size: 13px; opacity: .7; font-variant-numeric: tabular-nums; }
   .note { color: var(--muted); max-width: 32ch; margin: 0; text-wrap: balance; }
 

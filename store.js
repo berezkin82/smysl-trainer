@@ -113,10 +113,50 @@
       return syncing;
     }
 
+    // Фото для главного экрана лежат в приватном репо (папка photos/), в публичный код не попадают.
+    // Скачиваются по токену в Cache Storage и дальше показываются без сети. Ключ — sha файла:
+    // заменили фото в репо — скачается новое, удалили — пропадёт и здесь.
+    const PHOTO_CACHE = 'smysl-photos', PHOTO_KEY = 'https://photo.local/';
+    const hasCaches = () => typeof caches !== 'undefined';
+
+    async function cachedPhotos() {
+      if (!hasCaches()) return [];
+      const read = (async () => {
+        const c = await caches.open(PHOTO_CACHE);
+        const keys = await c.keys();
+        return Promise.all(keys.map(async k => (await c.match(k)).blob()));
+      })().catch(() => []);
+      // Хранилище может не ответить (приватный режим и т. п.) — тогда главный экран без фото.
+      return Promise.race([read, new Promise(res => setTimeout(() => res([]), 3000))]);
+    }
+
+    async function refreshPhotos() {
+      if (!hasCaches() || !S.settings.repo || !S.settings.token) return false;
+      try {
+        const r = await fetchFn(`${repoUrl()}/contents/photos`, { headers: headers(), cache: 'no-store' });
+        if (r.status !== 200 && r.status !== 404) return false;
+        const list = r.status === 404 ? [] : (await r.json()).filter(f => f.type === 'file' && /\.(jpe?g|png|webp)$/i.test(f.name));
+        const want = new Map(list.map(f => [PHOTO_KEY + f.sha, f]));
+        const c = await caches.open(PHOTO_CACHE);
+        let changed = false;
+        for (const k of await c.keys()) if (!want.has(k.url)) { await c.delete(k); changed = true; }
+        for (const [key, f] of want) {
+          if (await c.match(key)) continue;
+          const g = await fetchFn(f.url, { headers: headers(), cache: 'no-store' });
+          if (!g.ok) continue;
+          const bin = atob((await g.json()).content.replace(/\s/g, ''));
+          const type = /\.png$/i.test(f.name) ? 'image/png' : /\.webp$/i.test(f.name) ? 'image/webp' : 'image/jpeg';
+          await c.put(key, new Response(new Blob([Uint8Array.from(bin, ch => ch.charCodeAt(0))], { type }), { headers: { 'Content-Type': type } }));
+          changed = true;
+        }
+        return changed;
+      } catch (e) { return false; }
+    }
+
     function addRecord(r) { S.records.push(Object.assign({ day: day(), t: new Date().toISOString(), synced: false }, r)); save(); }
     const pendingCount = () => S.records.filter(r => !r.synced).length;
 
-    return { S, save, day, addRecord, sync, checkRepo, pendingCount, b64enc, b64dec };
+    return { S, save, day, addRecord, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec };
   }
 
   const api = { create, KEY };

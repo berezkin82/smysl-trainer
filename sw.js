@@ -1,5 +1,5 @@
 // Офлайн-кэш: сначала сеть (в обход HTTP-кэша, чтобы новая версия была видна сразу),
-// без сети — сохранённая копия.
+// без сети — сохранённая копия. Кэш фото (smysl-photos) не трогаем.
 const CACHE = 'smysl-shell-v2';
 const SHELL = ['./', './index.html', './app.js', './content.js', './store.js', './manifest.webmanifest',
   './icon-180.png', './icon-192.png', './icon-512.png'];
@@ -9,7 +9,7 @@ self.addEventListener('install', e => {
   self.skipWaiting();
 });
 self.addEventListener('activate', e => e.waitUntil(
-  caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+  caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('smysl-shell') && k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim())
 ));
 self.addEventListener('fetch', e => {

@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '29.09 18:31'; // проставляет .claude/deploy.sh
+  const BUILD = '30.09 16:11'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
   const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
@@ -390,26 +390,76 @@
     return n;
   }
 
+  // Фото на главном: из кэша устройства (см. store.js), по кругу; нажатие — «кувырок» и следующее фото.
+  const PH = {
+    urls: [], i: -1, loaded: false,
+    async load() {
+      this.urls.forEach(u => URL.revokeObjectURL(u));
+      this.urls = (await st.cachedPhotos()).map(b => URL.createObjectURL(b));
+      if (this.i < 0) this.i = Math.floor(Math.random() * this.urls.length) - 1;
+      this.loaded = true;
+    },
+    next() { if (!this.urls.length) return ''; this.i = (this.i + 1) % this.urls.length; return this.urls[this.i]; },
+  };
+
+  function setPhoto(url) {
+    const frame = $('#flyer .frame'); if (!frame) return;
+    frame.innerHTML = url ? `<img src="${url}" alt="">` : '🪂';
+  }
+
+  async function showPhoto() {
+    if (!PH.loaded) await PH.load();
+    setPhoto(PH.next());
+  }
+
+  function refreshPhotos() {
+    st.refreshPhotos().then(changed => { if (changed) PH.load().then(() => { if ($('#flyer')) showPhoto(); }); });
+  }
+
+  function bindFlyer() {
+    const f = $('#flyer');
+    f.onclick = () => {
+      if (f.classList.contains('spin')) return;
+      f.classList.add('spin');
+      for (let k = 0; k < 7; k++) {
+        const a = k / 7 * 2 * Math.PI + Math.random() * .5, r = 150 + Math.random() * 70;
+        const b = document.createElement('span');
+        b.className = 'burst'; b.textContent = pick(['⭐', '✨', '💫']);
+        b.style.setProperty('--x', Math.round(Math.cos(a) * r) + 'px'); b.style.setProperty('--y', Math.round(Math.sin(a) * r) + 'px');
+        f.append(b); setTimeout(() => b.remove(), 950);
+      }
+      if (PH.urls.length > 1) setTimeout(() => setPhoto(PH.next()), 450);
+      setTimeout(() => f.classList.remove('spin'), 900);
+    };
+  }
+
   function renderHome() {
     const today = st.day();
     const doneToday = S.days.includes(today) && S.extraDay !== today;
     const name = S.settings.name.trim();
     const s = streak();
+    const clouds = [[8, 70, -10, .9], [26, 95, -55, .6], [52, 80, -30, 1.1], [74, 110, -80, .7]];
     app.innerHTML = `
       <section class="home">
+        <div class="sky" aria-hidden="true">${clouds.map(([top, t, d, sc]) => `<i class="cloud" style="top:${top}%;--t:${t}s;--d:${d}s;--s:${sc}"></i>`).join('')}</div>
         <div class="logo">Поймай <span>смысл</span></div>
-        ${name ? `<p class="hello">Привет, ${esc(name)}!</p>` : ''}
+        ${name ? `<p class="hello">Привет, ${esc(name)}! Полетели?</p>` : ''}
+        <button class="flyer" id="flyer" aria-label="Кувырок!">
+          <span class="frame"></span>
+          ${[18, 34, 50, 66, 82].map((x, k) => `<i class="gust" style="left:${x}%;--d:${(k * 0.53) % 1.4}s"></i>`).join('')}
+        </button>
         <div class="chips">
           <span class="chip">⭐ ${S.stars}</span>
           ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
         </div>
         ${doneToday
           ? '<p class="note">Сегодняшняя тренировка уже пройдена. Приходи завтра!</p>'
-          : '<button class="btn primary" id="start">▶ Начать · 10 минут</button>'}
+          : '<button class="btn primary" id="start">▶ Полетели! · 10 минут</button>'}
         ${!TTS.ok && S.settings.mode !== 'read' ? '<p class="note">Голос не найден: пока играем только глазами.</p>' : ''}
       </section>
       <p class="build">версия ${esc(BUILD)}</p>`;
     const b = $('#start'); if (b) b.onclick = () => runSession();
+    bindFlyer(); showPhoto();
   }
 
   function renderDone(my) {
@@ -541,7 +591,7 @@
       st.save(); TTS.init();
     };
     app.querySelectorAll('input, select').forEach(el => { el.onchange = saveSettings; });
-    $('#close').onclick = () => { saveSettings(); renderHome(); };
+    $('#close').onclick = () => { saveSettings(); renderHome(); refreshPhotos(); };
     $('#f-say').onclick = () => { saveSettings(); TTS.unlock(); TTS.speak('Все круги синие, кроме одного красного.'); };
     $('#f-extra').onclick = e => { S.extraDay = today; st.save(); e.target.disabled = true; e.target.textContent = 'Разрешено ✓'; };
     $('#f-check').onclick = async () => { saveSettings(); status('Проверяю…', true); const r = await st.checkRepo(); status(r.text, r.ok); };
@@ -602,6 +652,7 @@
   if (demo === 'flash' || demo === 'robot') runSession({ demo });
   else renderHome();
 
+  refreshPhotos();
   if (st.pendingCount()) st.sync();
   window.addEventListener('online', () => st.sync());
   document.addEventListener('visibilitychange', () => { if (!document.hidden && st.pendingCount()) st.sync(); });
