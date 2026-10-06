@@ -261,6 +261,13 @@
     width: 44px; height: 44px; border-radius: 50%; border: 0; background: none; color: var(--muted); opacity: .45; font-size: 22px;
   }
   .gear.hold { opacity: 1; background: conic-gradient(var(--accent) var(--p, 0%), transparent 0); }
+  .gate {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px;
+    background: rgba(28, 42, 39, .45); -webkit-user-select: text; user-select: text;
+  }
+  .gate .card { width: min(420px, 100%); }
+  .gate label { display: flex; flex-direction: column; gap: 8px; font-weight: 700; }
+  td.wrap { white-space: normal; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }

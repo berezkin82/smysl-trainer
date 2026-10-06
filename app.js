@@ -11,8 +11,9 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '30.09 21:20'; // проставляет .claude/deploy.sh
+  const BUILD = '07.10 00:03'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
+  const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
   const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
   const GAMES = {
@@ -124,6 +125,12 @@
   async function runSession(opts = {}) {
     TTS.unlock();
     const t = opts.test || null;
+    if (!opts.demo && !t) {
+      // Прогресс могли поменять в другой копии (Safari / иконка) — сначала берём свежий из репо.
+      const b = $('#start'); if (b) { b.disabled = true; b.textContent = 'Секунду…'; }
+      await Promise.race([cloudSync(), wait(4000)]);
+      if (doneToday()) { renderHome(); return; }
+    }
     const my = sess = {
       id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo,
       test: t, len: t ? t.minutes * 60e3 : SESSION_MS,
@@ -165,10 +172,11 @@
       const today = st.day();
       if (!S.days.includes(today)) S.days.push(today);
       else if (S.extraDay === today) S.extraDay = '';
-      st.save();
+      st.touchProgress(); st.save();
       renderDone(my);
     } else renderHome();
     st.sync().then(updateSyncLine);
+    if (!my.test) st.pushProgress();
   }
 
   function showIntro(my, game, mode, idx) {
@@ -193,21 +201,27 @@
     if (first) { my.first++; my.stars++; if (!my.demo && !my.test) S.stars++; }
     if (!my.demo) {
       const rec = {
-        id: `${my.id}-${++my.seq}`, sid: my.id, game, tpl: task.tpl, level: task.level, mode,
+        id: `${my.id}-${++my.seq}`, sid: my.id, ver: BUILD, game, tpl: task.tpl, level: task.level, mode,
         text: task.text, trap: task.trap, expo: r.expo || null, read: r.readMs || null, replays: r.replays, attempts: r.attempts,
         correct: r.correct, first, rt: r.rt,
       };
+      // «Робот»: поле и что нажато на каждой попытке — видно, ошибка в смысле или в картинках.
+      if (r.field) { rec.field = r.field; rec.picks = r.picks; }
       if (my.test) rec.test = true;
       st.addRecord(rec);
       // Уровни и история: у ребёнка — сохранённые, в тесте — свои на время сессии.
-      const L = my.levels, H = my.hist, h = H[game];
+      const L = my.levels, H = my.hist, h = H[game], lv0 = L[game];
       h.push(first ? 1 : 0); if (h.length > 6) h.shift();
       const sum = a => a.reduce((x, y) => x + y, 0);
       if (h.length >= 6 && sum(h) >= 5 && L[game] < 3) { L[game]++; H[game] = []; r.levelUp = true; }
       else if (h.length >= 4 && sum(h.slice(-4)) <= 1 && L[game] > 1) { L[game]--; H[game] = []; }
+      if (!my.test) {
+        st.touchProgress();
+        if (L[game] !== lv0) st.addEvent('level', { ver: BUILD, sid: my.id, game, from: lv0, to: L[game] });
+      }
       if (game === 'flash' && mode === 'read') {
         const e = my.test ? my.expo : S.expo;
-        const ne = clamp(first ? e * 0.92 : r.correct ? e : e * 1.15, 0.45, 2);
+        const ne = clamp(first ? e * 0.92 : r.correct ? e : e * 1.15, EXPO_MIN, 2);
         if (my.test) my.expo = ne; else S.expo = ne;
       }
       st.save();
@@ -238,8 +252,9 @@
   async function playFlash(my, mode) {
     const task = C.flash(my.levels.flash);
     // Время показа — под скорость чтения второклассника (~50 слов/мин) плюс запас; «Понятно!» прячет раньше.
+    // Не короче 4 с: на 3,6 с ребёнок упирался в скорость чтения, а не в понимание (логи 30.09–06.10).
     const words = task.text.split(/\s+/).length;
-    const expo = Math.round(clamp((1500 + words * 1100) * (my.test ? my.expo : S.expo), 3000, 16000));
+    const expo = Math.round(clamp((1500 + words * 1100) * Math.max(my.test ? my.expo : S.expo, EXPO_MIN), 4000, 16000));
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
@@ -319,6 +334,7 @@
     const cells = [...field.children];
     const sel = new Set();
     let replays = 0, attempts = 0, correct = false, rt = null, busy = false;
+    const picks = [];
     const ASK = '<p class="ask">Выполни команду</p>';
 
     // Первый показ: фраза видна, пока не нажмут «Понятно!»; на слух — звучит один раз.
@@ -355,6 +371,7 @@
       alive(my);
       attempts++;
       if (rt === null) rt = Math.round(performance.now() - tAsk);
+      picks.push([...sel].sort((a, b) => a - b));
       correct = C.robotCheck(task, sel);
       if (!correct && attempts < 2) {
         busy = true;
@@ -375,7 +392,7 @@
       else if (sel.has(i)) c.classList.add('bad');
       else if (need && !correct) c.classList.add('need');
     });
-    const r = { correct, attempts, replays, rt };
+    const r = { correct, attempts, replays, rt, field: task.items.map(it => it.e).join(' '), picks };
     const first = finishTask(my, 'robot', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
   }
@@ -433,9 +450,17 @@
     };
   }
 
+  function doneToday() { const today = st.day(); return S.days.includes(today) && S.extraDay !== today; }
+
+  // Прогресс между копиями: взять из репо, если там свежее; иначе отправить свой.
+  async function cloudSync() {
+    const r = await st.pullProgress();
+    if (r.applied) st.addEvent('cloud-load', { ver: BUILD, from: r.from, before: r.before, after: r.after });
+    else if (r.ok) await st.pushProgress();
+    return r;
+  }
+
   function renderHome() {
-    const today = st.day();
-    const doneToday = S.days.includes(today) && S.extraDay !== today;
     const name = S.settings.name.trim();
     const s = streak();
     const clouds = [[8, 70, -10, .9], [26, 95, -55, .6], [52, 80, -30, 1.1], [74, 110, -80, .7]];
@@ -452,7 +477,7 @@
           <span class="chip">⭐ ${S.stars}</span>
           ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
         </div>
-        ${doneToday
+        ${doneToday()
           ? '<p class="note">Сегодняшняя тренировка уже пройдена. Приходи завтра!</p>'
           : '<button class="btn primary" id="start">▶ Полетели! · 10 минут</button>'}
         ${!TTS.ok && S.settings.mode !== 'read' ? '<p class="note">Голос не найден: пока играем только глазами.</p>' : ''}
@@ -494,7 +519,8 @@
   function renderParent() {
     if (sess) endSession(true);
     const today = st.day();
-    const recs = S.records.filter(r => !r.test);
+    const recs = S.records.filter(r => !r.test && r.game !== 'event');
+    const events = S.records.filter(r => r.game === 'event').slice(-15).reverse();
     const todayRecs = recs.filter(r => r.day === today);
     const pct = a => (a.length ? Math.round(a.filter(r => r.first).length / a.length * 100) + '%' : '—');
     const days = [...new Set(recs.map(r => r.day))].sort().slice(-7).reverse();
@@ -524,6 +550,16 @@
             ${days.map(d => { const a = recs.filter(r => r.day === d); return `<tr><td>${d}</td><td>${a.length}</td><td>${pct(a)}</td><td>${pct(a.filter(r => r.mode === 'read'))}</td><td>${pct(a.filter(r => r.mode === 'audio'))}</td></tr>`; }).join('')}
           </table></div>` : '<p class="muted">Пока нет ни одного ответа.</p>'}
           ${topMiss.length ? `<p class="muted">Чаще всего мешали слова: ${topMiss.map(([w, n]) => `<b>${esc(w)}</b> (${n})`).join(', ')}</p>` : ''}
+        </div>
+
+        <div class="card">
+          <h3>Журнал: что и почему менялось</h3>
+          <p class="muted">Эта копия тренажёра: <b>${esc(S.copy)}</b>. Прогресс изменён: ${S.progAt ? fmtTime(S.progAt) : '—'}.
+            Вкладка Safari и иконка на экране «Домой» — разные копии со своим хранилищем; прогресс между ними общий через GitHub (state.json).</p>
+          ${events.length ? `<div class="tbl-wrap"><table>
+            <tr><th>Когда</th><th>Копия</th><th>Что</th></tr>
+            ${events.map(e => `<tr><td>${fmtTime(e.t)}</td><td>${esc(e.copy || '')}</td><td class="wrap">${esc(evText(e))}</td></tr>`).join('')}
+          </table></div>` : '<p class="muted">Событий пока нет.</p>'}
         </div>
 
         <div class="card">
@@ -593,7 +629,10 @@
     app.querySelectorAll('input, select').forEach(el => { el.onchange = saveSettings; });
     $('#close').onclick = () => { saveSettings(); renderHome(); refreshPhotos(); };
     $('#f-say').onclick = () => { saveSettings(); TTS.unlock(); TTS.speak('Все круги синие, кроме одного красного.'); };
-    $('#f-extra').onclick = e => { S.extraDay = today; st.save(); e.target.disabled = true; e.target.textContent = 'Разрешено ✓'; };
+    $('#f-extra').onclick = e => {
+      S.extraDay = today; st.touchProgress(); st.addEvent('extra', { ver: BUILD }); st.pushProgress();
+      e.target.disabled = true; e.target.textContent = 'Разрешено ✓';
+    };
     $('#f-check').onclick = async () => { saveSettings(); status('Проверяю…', true); const r = await st.checkRepo(); status(r.text, r.ok); };
     $('#f-sync').onclick = async () => {
       saveSettings(); status('Отправляю…', true);
@@ -614,9 +653,11 @@
         setTimeout(() => { if (b.isConnected && b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Сбросить прогресс ребёнка'; } }, 4000);
         return;
       }
+      const before = st.snapshot();
       Object.assign(S, { levels: { flash: 1, robot: 1 }, hist: { flash: [], robot: [] }, expo: 1, stars: 0, days: [], extraDay: '' });
       S.records.forEach(r => { r.test = true; });
-      st.save();
+      st.touchProgress(); st.addEvent('reset', { ver: BUILD, before });
+      st.pushProgress();
       renderParent();
       status('Прогресс сброшен: всё как в первый день', true);
     };
@@ -625,6 +666,45 @@
       try { await navigator.clipboard.writeText(text); status('Скопировано: ' + todayRecs.length + ' записей', true); }
       catch (e) { status('Не удалось скопировать', false); }
     };
+  }
+
+  const fmtTime = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const lv = x => (x ? `${x.levels.flash}/${x.levels.robot}` : '?');
+  const EV_TEXT = {
+    'new-copy': () => 'Новая копия хранилища: прогресс с нуля',
+    'cloud-load': e => `Прогресс взят из GitHub (от копии ${e.from || '?'}): уровни ${lv(e.before)} → ${lv(e.after)}, звёзды ${e.before.stars} → ${e.after.stars}`,
+    reset: e => `Сброс прогресса взрослым (было: уровни ${lv(e.before)}, звёзды ${e.before ? e.before.stars : '?'})`,
+    level: e => `${e.game === 'flash' ? 'Вспышка' : 'Робот'}: уровень ${e.from} → ${e.to} — ${e.to > e.from ? '5 из 6 последних с первого раза' : 'из 4 последних с первого раза не больше 1'}`,
+    'parent-open': () => 'Вход в меню взрослых',
+    'gate-fail': e => `Неверный ответ на входе в меню взрослых: «${e.answer || ''}»`,
+    extra: () => 'Разрешена ещё одна тренировка сегодня',
+  };
+  const evText = e => (EV_TEXT[e.ev] ? EV_TEXT[e.ev](e) : e.ev);
+
+  // Вход для взрослых: удержать шестерёнку 2 секунды и решить пример, который второкласснику не по силам.
+  function renderGate() {
+    if ($('#gate')) return;
+    const a = 13 + Math.floor(Math.random() * 27), b = 3 + Math.floor(Math.random() * 7);
+    const el = document.createElement('div');
+    el.className = 'gate'; el.id = 'gate';
+    el.innerHTML = `<form class="card" id="gate-f">
+        <h3>Для взрослых</h3>
+        <label>Сколько будет ${a} × ${b}?<input id="gate-a" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label>
+        <p class="muted status bad" id="gate-m"></p>
+        <div class="row"><button class="btn primary small">Войти</button><button type="button" class="btn small" id="gate-x">Отмена</button></div>
+      </form>`;
+    document.body.append(el);
+    const close = () => el.remove();
+    $('#gate-x', el).onclick = close;
+    $('#gate-f', el).onsubmit = e => {
+      e.preventDefault();
+      const ans = $('#gate-a', el).value.trim();
+      if (+ans === a * b) { close(); st.addEvent('parent-open', { ver: BUILD }); renderParent(); return; }
+      st.addEvent('gate-fail', { ver: BUILD, answer: ans.slice(0, 6) });
+      $('#gate-m', el).textContent = 'Неверно';
+      setTimeout(close, 1200);
+    };
+    setTimeout(() => $('#gate-a', el).focus(), 50);
   }
 
   // Вход для взрослых — удерживать шестерёнку 2 секунды.
@@ -639,7 +719,7 @@
     };
     g.addEventListener('pointerdown', e => {
       e.preventDefault(); t0 = performance.now(); g.classList.add('hold'); loop();
-      timer = setTimeout(() => { stop(); renderParent(); }, 2000);
+      timer = setTimeout(() => { stop(); renderGate(); }, 2000);
     });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => g.addEventListener(ev, stop));
     g.addEventListener('contextmenu', e => e.preventDefault());
@@ -652,9 +732,17 @@
   if (demo === 'flash' || demo === 'robot') runSession({ demo });
   else renderHome();
 
+  if (st.isNewCopy) st.addEvent('new-copy', { ver: BUILD });
+  // Свежий прогресс из репо — при запуске и при каждом возвращении в приложение (вне тренировки).
+  const cloudRefresh = () => { if (!sess) cloudSync().then(r => { if (r.applied && $('.home')) renderHome(); }); };
   refreshPhotos();
+  cloudRefresh();
   if (st.pendingCount()) st.sync();
   window.addEventListener('online', () => st.sync());
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && st.pendingCount()) st.sync(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (st.pendingCount()) st.sync();
+    cloudRefresh();
+  });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

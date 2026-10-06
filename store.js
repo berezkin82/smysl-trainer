@@ -1,5 +1,7 @@
 // Хранение: всё состояние в localStorage; ответы отправляются в приватный репо GitHub
 // (файл ГГГГ-ММ-ДД.json на день). Без сети или без токена ответы ждут на устройстве.
+// Прогресс ребёнка дублируется в репо файлом state.json: на iPad у тренажёра бывает несколько
+// независимых хранилищ (Safari и иконка на экране «Домой»), и у каждого был свой прогресс.
 (function (root) {
   'use strict';
 
@@ -15,7 +17,11 @@
     days: [],             // дни с законченной тренировкой
     extraDay: '',         // день, на который родитель разрешил ещё одну тренировку
     lastSync: '', syncError: '',
+    copy: '',             // номер этой копии хранилища — виден в логах и журнале
+    progAt: '',           // когда последний раз менялся прогресс (для сверки с state.json)
   };
+  // Что считается прогрессом ребёнка и синхронизируется между копиями.
+  const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay'];
 
   function load(storage) {
     let saved = {};
@@ -29,6 +35,9 @@
 
   function create(storage, fetchFn) {
     const S = load(storage);
+    // Пустое хранилище без номера — новая копия (первый запуск, другой контейнер или данные стёрты).
+    const isNewCopy = !S.copy;
+    if (isNewCopy) S.copy = Math.random().toString(36).slice(2, 6);
     const save = () => {
       if (S.records.length > MAX_RECORDS) S.records = S.records.slice(-MAX_RECORDS);
       try { storage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* хранилище недоступно */ }
@@ -153,13 +162,62 @@
       } catch (e) { return false; }
     }
 
-    function addRecord(r) { S.records.push(Object.assign({ day: day(), t: new Date().toISOString(), synced: false }, r)); save(); }
+    function addRecord(r) { S.records.push(Object.assign({ day: day(), t: new Date().toISOString(), copy: S.copy, synced: false }, r)); save(); }
+    // Событие для журнала (вход в меню, сброс, смена уровня…): уходит в логи вместе с ответами, game: 'event'.
+    let evSeq = 0;
+    function addEvent(ev, data) {
+      addRecord(Object.assign({ id: `${S.copy}-${Date.now().toString(36)}-${++evSeq}`, game: 'event', ev }, data));
+    }
+
+    // ---------- Прогресс в репо (state.json) ----------
+    const snapshot = () => ({ levels: Object.assign({}, S.levels), expo: +(+S.expo).toFixed(2), stars: S.stars, days: S.days.length });
+    function touchProgress() { S.progAt = new Date().toISOString(); }
+    async function getState() {
+      const r = await fetchFn(`${repoUrl()}/contents/state.json`, { headers: headers(), cache: 'no-store' });
+      if (r.status === 404) return { sha: null, data: null };
+      if (r.status !== 200) throw new Error('GitHub ' + r.status);
+      const j = await r.json();
+      return { sha: j.sha, data: JSON.parse(b64dec(j.content)) };
+    }
+    // Взять прогресс из репо, если он свежее здешнего. Возвращает, что было и что стало.
+    async function pullProgress() {
+      if (!S.settings.repo || !S.settings.token) return { ok: false, text: 'GitHub не настроен' };
+      try {
+        const { data } = await getState();
+        if (!data || !data.progAt || data.progAt <= (S.progAt || '')) return { ok: true, applied: false };
+        const before = snapshot();
+        for (const k of PROG) if (k in data.prog) S[k] = JSON.parse(JSON.stringify(data.prog[k]));
+        S.progAt = data.progAt; save();
+        return { ok: true, applied: true, before, after: snapshot(), from: data.copy, at: data.progAt };
+      } catch (e) { return { ok: false, text: e.message }; }
+    }
+    // Отправить свой прогресс, если в репо не лежит более свежий (тот не затираем).
+    async function pushProgress() {
+      if (!S.settings.repo || !S.settings.token || !S.progAt) return { ok: false, text: 'нечего отправлять' };
+      try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const { sha, data } = await getState();
+          if (data && data.progAt >= S.progAt) return { ok: true, pushed: false, newer: data.progAt > S.progAt };
+          const prog = {};
+          for (const k of PROG) prog[k] = S[k];
+          const body = { message: 'Прогресс', content: b64enc(JSON.stringify({ progAt: S.progAt, copy: S.copy, prog }, null, 1)) };
+          if (sha) body.sha = sha;
+          const p = await fetchFn(`${repoUrl()}/contents/state.json`, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+          if (p.ok) return { ok: true, pushed: true };
+          if (p.status !== 409 && p.status !== 422) throw new Error('GitHub ' + p.status);
+        }
+        throw new Error('GitHub: конфликт записи');
+      } catch (e) { return { ok: false, text: e.message }; }
+    }
     const pendingCount = () => S.records.filter(r => !r.synced).length;
 
-    return { S, save, day, addRecord, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec };
+    return {
+      S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
+      isNewCopy, snapshot, touchProgress, pullProgress, pushProgress,
+    };
   }
 
-  const api = { create, KEY };
+  const api = { create, KEY, PROG };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else {
     let ls;
