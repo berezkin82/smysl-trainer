@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '07.10 00:03'; // проставляет .claude/deploy.sh
+  const BUILD = '07.10 00:20'; // проставляет .claude/deploy.sh
   const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
@@ -613,6 +613,13 @@
             <button class="btn small" id="f-sync">Отправить сейчас</button>
             <button class="btn small" id="f-copy">Скопировать логи за сегодня</button>
           </div>
+          <div class="row">
+            <button class="btn small" id="f-key">🔑 Скопировать ссылку-ключ</button>
+          </div>
+          <p class="muted">Ссылка-ключ хранит репозиторий и токен в самом адресе. Сохраните её в Заметках: открыть на iPad —
+            и настройки на месте. Чтобы иконка «Домой» восстанавливала токен сама: откройте ссылку в Safari →
+            «Поделиться» → «На экран „Домой“». Эта копия запущена ${launchedWithKey ? '<b>со ссылкой-ключом</b> ✓' : '<b>без ссылки-ключа</b>'}.</p>
+          <input id="f-keyout" readonly hidden>
           <p class="muted status" id="f-status">Не отправлено: ${st.pendingCount()}. ${S.lastSync ? 'Последняя отправка: ' + new Date(S.lastSync).toLocaleString('ru-RU') + '.' : 'Отправок ещё не было.'} ${S.syncError ? 'Ошибка: ' + esc(S.syncError) : ''}</p>
         </div>
       </section>`;
@@ -624,7 +631,7 @@
       set.voice = $('#f-voice').value;
       set.repo = $('#f-repo').value.trim();
       set.token = $('#f-token').value.trim();
-      st.save(); TTS.init();
+      st.save(); TTS.init(); keepKeyInUrl();
     };
     app.querySelectorAll('input, select').forEach(el => { el.onchange = saveSettings; });
     $('#close').onclick = () => { saveSettings(); renderHome(); refreshPhotos(); };
@@ -661,6 +668,13 @@
       renderParent();
       status('Прогресс сброшен: всё как в первый день', true);
     };
+    $('#f-key').onclick = async () => {
+      saveSettings();
+      if (!set.repo || !set.token) { status('Сначала введите репозиторий и токен', false); return; }
+      const link = keyLink();
+      try { await navigator.clipboard.writeText(link); status('Ссылка-ключ скопирована', true); }
+      catch (e) { const o = $('#f-keyout'); o.hidden = false; o.value = link; o.select(); status('Скопируйте ссылку из поля ниже', true); }
+    };
     $('#f-copy').onclick = async () => {
       const text = JSON.stringify(S.records.filter(r => r.day === today), null, 1);
       try { await navigator.clipboard.writeText(text); status('Скопировано: ' + todayRecs.length + ' записей', true); }
@@ -678,8 +692,32 @@
     'parent-open': () => 'Вход в меню взрослых',
     'gate-fail': e => `Неверный ответ на входе в меню взрослых: «${e.answer || ''}»`,
     extra: () => 'Разрешена ещё одна тренировка сегодня',
+    'key-link': e => (e.replaced ? 'Настройки GitHub заменены из ссылки-ключа' : 'Токен восстановлен из ссылки-ключа — вводить не пришлось'),
   };
   const evText = e => (EV_TEXT[e.ev] ? EV_TEXT[e.ev](e) : e.ev);
+
+  // ---------- Ссылка-ключ ----------
+  // Настройки GitHub лежат во фрагменте адреса (#k=…): он не уходит на сервер, но остаётся в адресе вкладки
+  // Safari и в иконке «Домой». Хранилище копии пустое или стёрто — токен берётся оттуда, вводить заново не нужно.
+  const keyEnc = s => st.b64enc(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const keyDec = s => st.b64dec(s.replace(/-/g, '+').replace(/_/g, '/'));
+  const keyHash = () => '#k=' + keyEnc(JSON.stringify({ r: S.settings.repo, t: S.settings.token, n: S.settings.name }));
+  const keyLink = () => location.origin + location.pathname + keyHash();
+  const launchedWithKey = /[#&]k=/.test(location.hash);
+  function applyKeyLink() {
+    const m = location.hash.match(/[#&]k=([\w-]+)/); if (!m) return;
+    let k; try { k = JSON.parse(keyDec(m[1])); } catch (e) { return; }
+    const set = S.settings;
+    if (!k.r || !k.t || (set.repo === k.r && set.token === k.t)) return;
+    const replaced = !!set.token;
+    set.repo = k.r; set.token = k.t; if (!set.name && k.n) set.name = k.n;
+    st.addEvent('key-link', { ver: BUILD, replaced });
+  }
+  // Ключ всегда в адресе: «На экран „Домой“» из Safari и сама вкладка унесут его с собой.
+  function keepKeyInUrl() {
+    if (!S.settings.repo || !S.settings.token) return;
+    try { if (location.hash !== keyHash()) history.replaceState(null, '', keyHash()); } catch (e) { /* нет history */ }
+  }
 
   // Вход для взрослых: удержать шестерёнку 2 секунды и решить пример, который второкласснику не по силам.
   function renderGate() {
@@ -726,13 +764,15 @@
   }
 
   // ---------- Запуск ----------
+  if (st.isNewCopy) st.addEvent('new-copy', { ver: BUILD });
+  applyKeyLink();
+  keepKeyInUrl();
   TTS.init();
   bindGear();
   const demo = new URLSearchParams(location.search).get('demo');
   if (demo === 'flash' || demo === 'robot') runSession({ demo });
   else renderHome();
 
-  if (st.isNewCopy) st.addEvent('new-copy', { ver: BUILD });
   // Свежий прогресс из репо — при запуске и при каждом возвращении в приложение (вне тренировки).
   const cloudRefresh = () => { if (!sess) cloudSync().then(r => { if (r.applied && $('.home')) renderHome(); }); };
   refreshPhotos();

@@ -3,7 +3,6 @@
   "short_name": "Смысл",
   "description": "Игровой тренажёр: поймать смысл фразы с первого раза",
   "lang": "ru",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#EAF2EE",
