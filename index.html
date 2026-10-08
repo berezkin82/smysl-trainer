@@ -219,6 +219,19 @@
   .cell.bad { border-color: var(--bad); background: var(--bad-bg); }
   .cell.bad::after { content: "✕"; position: absolute; top: 4px; right: 10px; font-size: 22px; color: var(--bad); font-weight: 900; }
 
+  /* «Ловушка»: каждое слово фразы — кнопка; найденное подчёркивается как ручкой */
+  .trapline .w {
+    border: 0; background: none; font: inherit; color: inherit; padding: 2px 4px; margin: 0 -2px; border-radius: 10px;
+    text-decoration-thickness: 3px; text-underline-offset: 8px;
+  }
+  .trapline .w:active { background: var(--surface-2); }
+  .trapline .w.hit { background: linear-gradient(transparent 58%, var(--mark) 58%); text-decoration: underline wavy var(--accent); }
+  .trapline .w.hit, .trapline .w.need { animation: pop .5s ease-out; }
+  .trapline .w.bad { color: var(--bad); text-decoration: line-through; animation: shake .35s; }
+  .trapline .w.need { background: var(--ok-bg); outline: 3px dashed var(--ok); outline-offset: 2px; }
+  .why { display: grid; gap: 6px; justify-items: center; text-align: center; }
+  .why p { margin: 0; font-size: clamp(20px, 2.8vw, 26px); font-weight: 700; background: var(--surface); border-radius: 14px; padding: 8px 16px; box-shadow: var(--shadow); }
+
   .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
   .feedback { text-align: center; font-size: 26px; font-weight: 800; min-height: 36px; margin: 0; }
   .feedback.ok { color: var(--ok); }

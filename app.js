@@ -1,4 +1,4 @@
-// Тренажёр «Поймай смысл»: тренировка из блоков по 2 минуты, игры «Вспышка» и «Робот»,
+// Тренажёр «Поймай смысл»: тренировка из блоков по 2,5 минуты, игры «Ловушка», «Вспышка» и «Робот»,
 // режимы «глазами» и «на слух», экран для взрослых.
 (function () {
   'use strict';
@@ -11,12 +11,17 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '07.10 00:20'; // проставляет .claude/deploy.sh
-  const SESSION_MS = 10 * 60e3, BLOCK_MS = 2 * 60e3;
+  const BUILD = '08.10 20:04'; // проставляет .claude/deploy.sh
+  const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
-  // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются).
-  const PLAN = [['flash', 'read'], ['robot', 'audio'], ['flash', 'audio'], ['robot', 'read'], ['flash', 'read']];
+  // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
+  // слова, которые меняют смысл, потом ловить смысл целиком. Она всегда глазами.
+  const PLAN = [['trap', 'read'], ['flash', 'read'], ['robot', 'audio'], ['trap', 'read'], ['flash', 'audio'], ['robot', 'read']];
   const GAMES = {
+    trap: {
+      title: 'Ловушка', icon: '🪤',
+      read: 'В каждой фразе прячется слово, от которого меняется смысл: «не», «кроме», «только»… Найди его и нажми.',
+    },
     flash: {
       title: 'Вспышка', icon: '⚡',
       read: 'Фраза появится ненадолго. Прочитай её один раз и запомни. Потом выбери картинку, где всё именно так.',
@@ -92,7 +97,8 @@
     }, 250);
   }
 
-  function effectiveMode(planMode, override) {
+  function effectiveMode(game, planMode, override) {
+    if (game === 'trap') return 'read';
     const m = override || S.settings.mode;
     const want = m === 'mix' ? planMode : m;
     return want === 'audio' && !TTS.ok ? 'read' : want;
@@ -134,8 +140,8 @@
     const my = sess = {
       id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo,
       test: t, len: t ? t.minutes * 60e3 : SESSION_MS,
-      levels: t ? { flash: t.level, robot: t.level } : S.levels,
-      hist: t ? { flash: [], robot: [] } : S.hist,
+      levels: t ? { flash: t.level, robot: t.level, trap: t.level } : S.levels,
+      hist: t ? { flash: [], robot: [], trap: [] } : S.hist,
       expo: 1,
     };
     startTicker(); requestWake();
@@ -145,14 +151,14 @@
         : PLAN;
       for (let b = 0; b < plan.length && sess.elapsed < my.len; b++) {
         const [game, planMode] = plan[b];
-        const mode = effectiveMode(planMode, t && t.mode);
+        const mode = effectiveMode(game, planMode, t && t.mode);
         if (!opts.demo) await showIntro(my, game, mode, b);
         // В коротком тесте блоки делят время поровну, чтобы успеть увидеть все игры.
         const blockMs = t ? my.len / plan.length : BLOCK_MS;
         const blockEnd = Math.min(sess.elapsed + blockMs, my.len);
         do {
           my.active = true;
-          await (game === 'flash' ? playFlash : playRobot)(my, mode);
+          await PLAY[game](my, mode);
           my.active = false;
         } while (opts.demo || my.elapsed < blockEnd);
       }
@@ -207,6 +213,7 @@
       };
       // «Робот»: поле и что нажато на каждой попытке — видно, ошибка в смысле или в картинках.
       if (r.field) { rec.field = r.field; rec.picks = r.picks; }
+      if (r.taps) rec.taps = r.taps; // «Ловушка»: какие слова нажаты по порядку
       if (my.test) rec.test = true;
       st.addRecord(rec);
       // Уровни и история: у ребёнка — сохранённые, в тесте — свои на время сессии.
@@ -234,12 +241,12 @@
     return first;
   }
 
-  async function showResult(my, first, correct, levelUp) {
+  async function showResult(my, first, correct, levelUp, text = {}) {
     const fb = $('#fb');
     fb.className = 'feedback ' + (correct ? 'ok' : 'bad');
     fb.innerHTML = first ? `<span class="pop">⭐</span> ${pick(PRAISE)}`
-      : correct ? 'Правильно! Подчёркнутые слова помогли.'
-      : 'Ничего! Посмотри, как было правильно.';
+      : correct ? text.ok || 'Правильно! Подчёркнутые слова помогли.'
+      : text.bad || 'Ничего! Посмотри, как было правильно.';
     if (levelUp) fb.innerHTML += '<br><span class="pop">🚀 Новый уровень!</span>';
     const next = $('#next');
     if (first && !levelUp) { await wait(2200); alive(my); return; }
@@ -397,6 +404,58 @@
     await showResult(my, first, correct, r.levelUp);
   }
 
+  // ---------- «Ловушка» ----------
+  // Фраза остаётся на экране; нужно нажать слова, которые меняют смысл. Вторая ошибка — показываем ответ.
+  async function playTrap(my) {
+    const task = C.trap(my.levels.trap), n = task.need.length;
+    app.innerHTML = `${barHTML()}
+      <section class="task">
+        <div class="prompt">
+          <p class="ask">${n > 1 ? `Найди ${n} ${plural(n, 'слово', 'слова', 'слов')}-ловушки` : 'Найди слово-ловушку'}</p>
+          <p class="sentence trapline" id="line">${task.parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
+          <p class="hint" id="hint">Слово, от которого меняется смысл</p>
+        </div>
+        <p class="feedback" id="fb"></p>
+        <div class="why" id="why" hidden></div>
+        <div class="actions"><button class="btn primary" id="next" hidden>Дальше →</button></div>
+      </section>`;
+    bindExit();
+    const line = $('#line'), words = [...line.querySelectorAll('.w')], tAsk = performance.now();
+    const found = new Set(), taps = [];
+    let wrong = 0, rt = null;
+    await new Promise(res => {
+      line.onclick = e => {
+        const b = e.target.closest('.w'); if (!b || b.classList.contains('hit') || b.classList.contains('bad')) return;
+        const i = +b.dataset.i;
+        taps.push(task.parts[i].toLowerCase());
+        if (rt === null) rt = Math.round(performance.now() - tAsk);
+        if (task.need.includes(i)) {
+          found.add(i); b.classList.add('hit');
+          if (found.size === n) res();
+        } else {
+          wrong++; b.classList.add('bad');
+          if (wrong >= 2) res();
+          else $('#hint').textContent = 'Это слово смысл не меняет. Ищи дальше!';
+        }
+      };
+    });
+    alive(my);
+    line.onclick = null;
+    const correct = found.size === n;
+    words.forEach(b => { if (task.need.includes(+b.dataset.i) && !found.has(+b.dataset.i)) b.classList.add('need'); });
+    $('#hint').textContent = '';
+    const r = { correct, attempts: wrong + 1, replays: 0, rt, taps };
+    const first = finishTask(my, 'trap', 'read', task, r);
+    if (!first) {
+      const why = $('#why');
+      why.innerHTML = [...new Set(task.trap.map(C.trapWhy))].map(t => `<p>${esc(t)}</p>`).join('');
+      why.hidden = false;
+    }
+    await showResult(my, first, correct, r.levelUp, { ok: 'Верно! Со второй попытки.', bad: 'Ничего! Вот где были ловушки.' });
+  }
+
+  const PLAY = { flash: playFlash, robot: playRobot, trap: playTrap };
+
   // ---------- Главный и итоговый экраны ----------
   function streak() {
     const set = new Set(S.days);
@@ -479,7 +538,7 @@
         </div>
         ${doneToday()
           ? '<p class="note">Сегодняшняя тренировка уже пройдена. Приходи завтра!</p>'
-          : '<button class="btn primary" id="start">▶ Полетели! · 10 минут</button>'}
+          : `<button class="btn primary" id="start">▶ Полетели! · ${SESSION_MS / 60e3} минут</button>`}
         ${!TTS.ok && S.settings.mode !== 'read' ? '<p class="note">Голос не найден: пока играем только глазами.</p>' : ''}
       </section>
       <p class="build">версия ${esc(BUILD)}</p>`;
@@ -523,6 +582,9 @@
     const events = S.records.filter(r => r.game === 'event').slice(-15).reverse();
     const todayRecs = recs.filter(r => r.day === today);
     const pct = a => (a.length ? Math.round(a.filter(r => r.first).length / a.length * 100) + '%' : '—');
+    // «Глазами / на слух» сравниваем только во «Вспышке» и «Роботе»: «Ловушка» всегда глазами.
+    const eyes = a => a.filter(r => r.mode === 'read' && r.game !== 'trap'), ears = a => a.filter(r => r.mode === 'audio');
+    const traps = a => a.filter(r => r.game === 'trap');
     const days = [...new Set(recs.map(r => r.day))].sort().slice(-7).reverse();
     const miss = {};
     recs.slice(-300).filter(r => !r.first).forEach(r => (r.trap || []).forEach(w => { const k = w.toLowerCase(); miss[k] = (miss[k] || 0) + 1; }));
@@ -540,14 +602,15 @@
           <div class="kv">
             <div><b>${todayRecs.length}</b><span>заданий</span></div>
             <div><b>${pct(todayRecs)}</b><span>с первого раза</span></div>
-            <div><b>${pct(todayRecs.filter(r => r.mode === 'read'))}</b><span>глазами</span></div>
-            <div><b>${pct(todayRecs.filter(r => r.mode === 'audio'))}</b><span>на слух</span></div>
-            <div><b>${S.levels.flash} / ${S.levels.robot}</b><span>уровень Вспышка / Робот</span></div>
+            <div><b>${pct(eyes(todayRecs))}</b><span>глазами</span></div>
+            <div><b>${pct(ears(todayRecs))}</b><span>на слух</span></div>
+            <div><b>${pct(traps(todayRecs))}</b><span>Ловушка</span></div>
+            <div><b>${S.levels.trap} / ${S.levels.flash} / ${S.levels.robot}</b><span>уровень Ловушка / Вспышка / Робот</span></div>
             <div><b>${(S.expo).toFixed(2)}×</b><span>время показа фразы</span></div>
           </div>
           ${days.length ? `<div class="tbl-wrap"><table>
-            <tr><th>День</th><th>Заданий</th><th>С 1-го раза</th><th>Глазами</th><th>На слух</th></tr>
-            ${days.map(d => { const a = recs.filter(r => r.day === d); return `<tr><td>${d}</td><td>${a.length}</td><td>${pct(a)}</td><td>${pct(a.filter(r => r.mode === 'read'))}</td><td>${pct(a.filter(r => r.mode === 'audio'))}</td></tr>`; }).join('')}
+            <tr><th>День</th><th>Заданий</th><th>С 1-го раза</th><th>Глазами</th><th>На слух</th><th>Ловушка</th></tr>
+            ${days.map(d => { const a = recs.filter(r => r.day === d); return `<tr><td>${d}</td><td>${a.length}</td><td>${pct(a)}</td><td>${pct(eyes(a))}</td><td>${pct(ears(a))}</td><td>${pct(traps(a))}</td></tr>`; }).join('')}
           </table></div>` : '<p class="muted">Пока нет ни одного ответа.</p>'}
           ${topMiss.length ? `<p class="muted">Чаще всего мешали слова: ${topMiss.map(([w, n]) => `<b>${esc(w)}</b> (${n})`).join(', ')}</p>` : ''}
         </div>
@@ -590,10 +653,10 @@
           <h3>Проверка для взрослых</h3>
           <p class="muted">Тестовая тренировка не меняет звёзды, уровни и статистику ребёнка. Её ответы попадают в логи с пометкой test.</p>
           <div class="row">
-            <label>Игра<select id="t-game">${opt('all', T.game, 'Все по очереди')}${opt('flash', T.game, 'Вспышка')}${opt('robot', T.game, 'Робот')}</select></label>
+            <label>Игра<select id="t-game">${opt('all', T.game, 'Все по очереди')}${opt('trap', T.game, 'Ловушка')}${opt('flash', T.game, 'Вспышка')}${opt('robot', T.game, 'Робот')}</select></label>
             <label>Уровень<select id="t-level">${opt(1, T.level, '1 — простой')}${opt(2, T.level, '2 — не, кроме, только')}${opt(3, T.level, '3 — сложный')}</select></label>
             <label>Режим<select id="t-mode">${opt('mix', T.mode, 'Смешанный')}${opt('read', T.mode, 'Глазами')}${opt('audio', T.mode, 'На слух')}</select></label>
-            <label>Длительность<select id="t-min">${opt(2, T.minutes, '2 минуты')}${opt(10, T.minutes, '10 минут')}</select></label>
+            <label>Длительность<select id="t-min">${opt(2, T.minutes, '2 минуты')}${opt(15, T.minutes, '15 минут')}</select></label>
           </div>
           <div class="row">
             <button class="btn primary small" id="t-start">▶ Тестовая тренировка</button>
@@ -661,7 +724,7 @@
         return;
       }
       const before = st.snapshot();
-      Object.assign(S, { levels: { flash: 1, robot: 1 }, hist: { flash: [], robot: [] }, expo: 1, stars: 0, days: [], extraDay: '' });
+      Object.assign(S, { levels: { flash: 1, robot: 1, trap: 1 }, hist: { flash: [], robot: [], trap: [] }, expo: 1, stars: 0, days: [], extraDay: '' });
       S.records.forEach(r => { r.test = true; });
       st.touchProgress(); st.addEvent('reset', { ver: BUILD, before });
       st.pushProgress();
@@ -683,12 +746,13 @@
   }
 
   const fmtTime = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const lv = x => (x ? `${x.levels.flash}/${x.levels.robot}` : '?');
+  const lv = x => (x ? `${x.levels.flash}/${x.levels.robot}${x.levels.trap ? '/' + x.levels.trap : ''}` : '?');
+  const GAME_NAME = { flash: 'Вспышка', robot: 'Робот', trap: 'Ловушка' };
   const EV_TEXT = {
     'new-copy': () => 'Новая копия хранилища: прогресс с нуля',
     'cloud-load': e => `Прогресс взят из GitHub (от копии ${e.from || '?'}): уровни ${lv(e.before)} → ${lv(e.after)}, звёзды ${e.before.stars} → ${e.after.stars}`,
     reset: e => `Сброс прогресса взрослым (было: уровни ${lv(e.before)}, звёзды ${e.before ? e.before.stars : '?'})`,
-    level: e => `${e.game === 'flash' ? 'Вспышка' : 'Робот'}: уровень ${e.from} → ${e.to} — ${e.to > e.from ? '5 из 6 последних с первого раза' : 'из 4 последних с первого раза не больше 1'}`,
+    level: e => `${GAME_NAME[e.game] || e.game}: уровень ${e.from} → ${e.to} — ${e.to > e.from ? '5 из 6 последних с первого раза' : 'из 4 последних с первого раза не больше 1'}`,
     'parent-open': () => 'Вход в меню взрослых',
     'gate-fail': e => `Неверный ответ на входе в меню взрослых: «${e.answer || ''}»`,
     extra: () => 'Разрешена ещё одна тренировка сегодня',
@@ -770,7 +834,7 @@
   TTS.init();
   bindGear();
   const demo = new URLSearchParams(location.search).get('demo');
-  if (demo === 'flash' || demo === 'robot') runSession({ demo });
+  if (PLAY[demo]) runSession({ demo });
   else renderHome();
 
   // Свежий прогресс из репо — при запуске и при каждом возвращении в приложение (вне тренировки).

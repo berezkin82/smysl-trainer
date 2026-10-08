@@ -10,8 +10,8 @@
   const DEFAULTS = {
     settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },
     records: [],          // все ответы; r.synced — отправлен ли в GitHub
-    levels: { flash: 1, robot: 1 },
-    hist: { flash: [], robot: [] },   // последние «с первого раза» для смены уровня
+    levels: { flash: 1, robot: 1, trap: 1 },
+    hist: { flash: [], robot: [], trap: [] },   // последние «с первого раза» для смены уровня
     expo: 1,              // множитель времени показа во «Вспышке»
     stars: 0,
     days: [],             // дни с законченной тренировкой
@@ -29,8 +29,13 @@
     const s = Object.assign({}, DEFAULTS, saved);
     s.settings = Object.assign({}, DEFAULTS.settings, saved.settings);
     s.levels = Object.assign({}, DEFAULTS.levels, saved.levels);
-    s.hist = Object.assign({ flash: [], robot: [] }, saved.hist);
+    s.hist = Object.assign({ flash: [], robot: [], trap: [] }, saved.hist);
     return s;
+  }
+  // В state.json от старой версии нет новых игр — их уровни берём по умолчанию.
+  function fillGames(s) {
+    s.levels = Object.assign({}, DEFAULTS.levels, s.levels);
+    s.hist = Object.assign({ flash: [], robot: [], trap: [] }, s.hist);
   }
 
   function create(storage, fetchFn) {
@@ -187,6 +192,7 @@
         if (!data || !data.progAt || data.progAt <= (S.progAt || '')) return { ok: true, applied: false };
         const before = snapshot();
         for (const k of PROG) if (k in data.prog) S[k] = JSON.parse(JSON.stringify(data.prog[k]));
+        fillGames(S);
         S.progAt = data.progAt; save();
         return { ok: true, applied: true, before, after: snapshot(), from: data.copy, at: data.progAt };
       } catch (e) { return { ok: false, text: e.message }; }
