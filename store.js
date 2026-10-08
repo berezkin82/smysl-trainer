@@ -20,6 +20,7 @@
     bank: { total: 0, log: [], goal: '', price: 0, rate: 50 },
     lastSync: '', syncError: '',
     copy: '',             // номер этой копии хранилища — виден в логах и журнале
+    family: [],           // имена для «секретов» — из приватного репо (family.json), в публичный код не попадают
     progAt: '',           // когда последний раз менялся прогресс (для сверки с state.json)
   };
   // Что считается прогрессом ребёнка и синхронизируется между копиями.
@@ -171,6 +172,21 @@
       } catch (e) { return false; }
     }
 
+    // Имена для «секретов» лежат в приватном репо (family.json: [{ name, who }]), как и фото.
+    async function refreshFamily() {
+      if (!S.settings.repo || !S.settings.token) return false;
+      try {
+        const r = await fetchFn(`${repoUrl()}/contents/family.json`, { headers: headers(), cache: 'no-store' });
+        if (r.status !== 200 && r.status !== 404) return false;
+        const list = r.status === 404 ? [] : JSON.parse(b64dec((await r.json()).content));
+        S.family = (Array.isArray(list) ? list : [])
+          .filter(f => f && typeof f.name === 'string' && /^[А-Яа-яЁё]{2,12}$/.test(f.name.trim()))
+          .map(f => ({ name: f.name.trim(), who: typeof f.who === 'string' ? f.who.trim() : '' }));
+        save();
+        return true;
+      } catch (e) { return false; }
+    }
+
     function addRecord(r) { S.records.push(Object.assign({ day: day(), t: new Date().toISOString(), copy: S.copy, synced: false }, r)); save(); }
     // Событие для журнала (вход в меню, сброс, смена уровня…): уходит в логи вместе с ответами, game: 'event'.
     let evSeq = 0;
@@ -232,7 +248,7 @@
 
     return {
       S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
-      isNewCopy, snapshot, touchProgress, bankAdd, pullProgress, pushProgress,
+      isNewCopy, snapshot, touchProgress, bankAdd, refreshFamily, pullProgress, pushProgress,
     };
   }
 

@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 20:34'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 20:46'; // проставляет .claude/deploy.sh
   const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
@@ -143,6 +143,7 @@
     }
     const my = sess = {
       id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo,
+      secrets: 0, lastSecretN: -99,
       test: t, len: t ? t.minutes * 60e3 : SESSION_MS,
       levels: t ? { flash: t.level, robot: t.level, trap: t.level } : S.levels,
       hist: t ? { flash: [], robot: [], trap: [] } : S.hist,
@@ -161,9 +162,11 @@
         const blockMs = t ? my.len / plan.length : BLOCK_MS;
         const blockEnd = Math.min(sess.elapsed + blockMs, my.len);
         do {
+          planSecret(my);
           my.active = true;
-          await PLAY[game](my, mode);
+          const res = await PLAY[game](my, mode);
           my.active = false;
+          if (res && res.first) await maybeSecret(my, res.text);
         } while (opts.demo || my.elapsed < blockEnd);
       }
       if (!opts.demo) endSession(false);
@@ -315,7 +318,7 @@
 
   // ---------- «Вспышка» ----------
   async function playFlash(my, mode) {
-    const task = C.flash(my.levels.flash);
+    const task = makeTask(my, () => C.flash(my.levels.flash));
     // Время показа — под скорость чтения второклассника (~50 слов/мин) плюс запас; «Понятно!» прячет раньше.
     // Не короче 4 с: на 3,6 с ребёнок упирался в скорость чтения, а не в понимание (логи 30.09–06.10).
     const words = task.text.split(/\s+/).length;
@@ -380,11 +383,12 @@
     const r = { correct, attempts, replays, rt, expo: mode === 'read' ? expo : null, readMs, find };
     const first = finishTask(my, 'flash', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
+    return { first, text: task.text };
   }
 
   // ---------- «Робот» ----------
   async function playRobot(my, mode) {
-    const task = C.robot(my.levels.robot);
+    const task = makeTask(my, () => C.robot(my.levels.robot));
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
@@ -461,12 +465,13 @@
     const r = { correct, attempts, replays, rt, field: task.items.map(it => it.e).join(' '), picks, find };
     const first = finishTask(my, 'robot', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
+    return { first, text: task.text };
   }
 
   // ---------- «Ловушка» ----------
   // Фраза остаётся на экране; нужно нажать слова, которые меняют смысл. Вторая ошибка — показываем ответ.
   async function playTrap(my) {
-    const task = C.trap(my.levels.trap), n = task.need.length;
+    const task = makeTask(my, () => C.trap(my.levels.trap)), n = task.need.length;
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt">
@@ -511,9 +516,95 @@
       why.hidden = false;
     }
     await showResult(my, first, correct, r.levelUp, { ok: 'Верно! Со второй попытки.', bad: 'Ничего! Вот где были ловушки.' });
+    return { first, text: task.text };
   }
 
   const PLAY = { flash: playFlash, robot: playRobot, trap: playTrap };
+
+  // ---------- Секрет ----------
+  // Иногда после верного ответа: во фразе спряталось имя кого-то из семьи (буквы идут по порядку, не подряд).
+  // Нужно найти эти буквы. Имена — из приватного репо (store.refreshFamily). Время тренировки не идёт.
+  const norm = ch => ch.toLowerCase().replace('ё', 'е');
+  const fitsSeq = (text, name) => { let k = 0; for (const ch of text) if (k < name.length && norm(ch) === norm(name[k])) k++; return k === name.length; };
+  const SECRET_MAX = 3, SECRET_GAP = 8, SECRET_P = 0.12;
+  const FORCE_SECRET = new URLSearchParams(location.search).has('secret'); // для проверок: секрет после каждого верного ответа
+
+  // Перед заданием решаем, будет ли после него секрет, и чьё имя прячем: сначала новые для этой тренировки.
+  function planSecret(my) {
+    my.secretFor = null;
+    if (my.demo || !S.family.length) return;
+    if (!FORCE_SECRET && (my.secrets >= SECRET_MAX || my.n - my.lastSecretN < SECRET_GAP || Math.random() > SECRET_P)) return;
+    const fresh = S.family.filter(f => !(my.shownNames || []).includes(f.name));
+    my.secretFor = pick(fresh.length ? fresh : S.family);
+  }
+  // Задание с секретом подбираем: перебираем варианты, пока имя не уложится в буквы фразы.
+  function makeTask(my, make) {
+    if (!my.secretFor) return make();
+    for (let k = 0; k < 80; k++) { const t = make(); if (fitsSeq(t.text, my.secretFor.name)) return t; }
+    for (let k = 0; k < 40; k++) { const t = make(); const f = S.family.find(x => fitsSeq(t.text, x.name)); if (f) { my.secretFor = f; return t; } }
+    my.secretFor = null;
+    return make();
+  }
+
+  async function maybeSecret(my, text) {
+    const f = my.secretFor; my.secretFor = null;
+    if (!f || !fitsSeq(text, f.name)) return;
+    const name = [...f.name];
+    my.shownNames = (my.shownNames || []).concat(f.name);
+    my.secrets++; my.lastSecretN = my.n;
+    const chars = [...text];
+    // Слова не переносятся посередине: каждое слово — неразрывный блок из кнопок-букв.
+    let html = '', i = 0;
+    for (const part of text.split(/(\s+)/)) {
+      if (/^\s+$/.test(part)) { html += ' '; i += part.length; continue; }
+      html += '<span class="wd">' + [...part].map(ch => { const k = i++; return /[А-Яа-яЁё]/.test(ch) ? `<button class="l" data-i="${k}">${esc(ch)}</button>` : esc(ch); }).join('') + '</span>';
+    }
+    app.innerHTML = `${barHTML()}
+      <section class="task secret">
+        <div class="prompt">
+          <p class="ask">🔎 Секрет! В этой фразе спряталось имя</p>
+          <div class="slots">${name.map(ch => `<span>${esc(ch.toUpperCase())}</span>`).join('')}</div>
+          <p class="hint" id="shint">Найди эти буквы во фразе по порядку</p>
+        </div>
+        <p class="sentence letters" id="sl">${html}</p>
+        <p class="feedback" id="fb"></p>
+        <div class="actions"><button class="btn small" id="skip">Пропустить</button><button class="btn primary" id="next" hidden>Дальше →</button></div>
+      </section>`;
+    bindExit();
+    TTS.speak('Секрет! В этой фразе спряталось имя ' + f.name);
+    const slots = [...app.querySelectorAll('.slots span')];
+    let k = 0, last = -1, miss = 0;
+    const done = await new Promise(res => {
+      $('#skip').onclick = () => res(false);
+      $('#sl').onclick = e => {
+        const b = e.target.closest('.l'); if (!b || b.classList.contains('hit')) return;
+        const at = +b.dataset.i;
+        // Буква подходит, если она следующая в имени, стоит после найденных и после неё хватает букв на остаток имени.
+        if (norm(chars[at]) === norm(name[k]) && at > last && fitsSeq(chars.slice(at + 1).join(''), name.slice(k + 1).join(''))) {
+          b.classList.add('hit'); slots[k].classList.add('on'); last = at; k++;
+          if (k === name.length) res(true);
+        } else {
+          miss++; b.classList.remove('no'); void b.offsetWidth; b.classList.add('no');
+          $('#shint').textContent = norm(chars[at]) === norm(name[k]) ? 'Эта буква нужна раньше — ищи ближе к началу' : `Сейчас ищем букву «${name[k].toUpperCase()}»`;
+        }
+      };
+    });
+    alive(my);
+    $('#sl').onclick = null; $('#skip').hidden = true;
+    const rec = { id: `${my.id}-${++my.seq}`, sid: my.id, ver: BUILD, game: 'secret', name: f.name, done, miss };
+    if (my.test) rec.test = true;
+    st.addRecord(rec);
+    if (!done) return;
+    my.stars++; if (!my.test) { S.stars++; st.touchProgress(); st.save(); }
+    const sEl = $('#sstars'); if (sEl) sEl.textContent = my.stars;
+    const fb = $('#fb');
+    fb.className = 'feedback ok';
+    fb.innerHTML = `<span class="pop">✨ ${esc(f.name)}${f.who ? ' — ' + esc(f.who) : ''}! ✨</span><br><span class="pop">⭐ +1</span>`;
+    TTS.speak(f.name + '!');
+    const next = $('#next'); next.hidden = false;
+    await new Promise(res => { next.onclick = res; });
+    alive(my);
+  }
 
   // ---------- Главный и итоговый экраны ----------
   function streak() {
@@ -796,7 +887,7 @@
       renderParent();
       status('Копилка обнулена', true);
     };
-    $('#close').onclick = () => { saveSettings(); saveBank(); renderHome(); refreshPhotos(); };
+    $('#close').onclick = () => { saveSettings(); saveBank(); renderHome(); refreshPhotos(); st.refreshFamily(); };
     $('#f-say').onclick = () => { saveSettings(); TTS.unlock(); TTS.speak('Все круги синие, кроме одного красного.'); };
     $('#f-extra').onclick = e => {
       S.extraDay = today; st.touchProgress(); st.addEvent('extra', { ver: BUILD }); st.pushProgress();
@@ -942,6 +1033,7 @@
   // Свежий прогресс из репо — при запуске и при каждом возвращении в приложение (вне тренировки).
   const cloudRefresh = () => { if (!sess) cloudSync().then(r => { if (r.applied && $('.home')) renderHome(); }); };
   refreshPhotos();
+  st.refreshFamily();
   cloudRefresh();
   if (st.pendingCount()) st.sync();
   window.addEventListener('online', () => st.sync());

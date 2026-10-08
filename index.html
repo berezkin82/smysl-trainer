@@ -245,6 +245,15 @@
   .why { display: grid; gap: 6px; justify-items: center; text-align: center; }
   .why p { margin: 0; font-size: clamp(20px, 2.8vw, 26px); font-weight: 700; background: var(--surface); border-radius: 14px; padding: 8px 16px; box-shadow: var(--shadow); }
 
+  /* Секрет: буквы фразы — кнопки, слова не разрываются */
+  .letters { text-align: center; font-size: clamp(32px, 5.2vw, 52px); line-height: 1.5; }
+  .letters .wd { white-space: nowrap; display: inline-block; margin: 0 .18em; }
+  .letters .l { border: 0; background: none; font: inherit; color: inherit; padding: 0 .04em; min-width: .7em; border-radius: 10px; }
+  .letters .l.hit { background: var(--mark); color: var(--ink); }
+  .letters .l.no { animation: shake .35s; color: var(--bad); }
+  .slots { display: flex; gap: 8px; justify-content: center; }
+  .slots span { width: 52px; height: 60px; display: grid; place-items: center; border-radius: 12px; border: 3px dashed var(--line); font-size: 32px; font-weight: 900; color: var(--muted); }
+  .slots span.on { border: 3px solid var(--star); background: var(--mark); color: var(--ink); animation: pop .4s ease-out; }
   .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
   .feedback:empty { display: none; }
   .feedback { text-align: center; font-size: 26px; font-weight: 800; min-height: 36px; margin: 0; }
