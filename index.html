@@ -94,8 +94,8 @@
   .btn:active:not(:disabled) { transform: translateY(1px); }
 
   /* Главный экран */
-  .home { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 26px; }
-  .logo { font-size: clamp(44px, 8vw, 76px); font-weight: 900; letter-spacing: -.02em; line-height: 1; text-wrap: balance; }
+  .home { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: clamp(10px, 2.4vh, 26px); }
+  .logo { font-size: clamp(40px, min(8vw, 9vh), 76px); font-weight: 900; letter-spacing: -.02em; line-height: 1; text-wrap: balance; }
   .logo span { background: linear-gradient(transparent 62%, var(--mark) 62%, var(--mark) 88%, transparent 88%); padding: 0 .08em; }
   .hello { color: var(--muted); font-size: 22px; margin: 0; }
   .chips { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
@@ -132,7 +132,7 @@
 
   .flyer {
     border: 0; padding: 0; background: none; position: relative;
-    width: min(62vw, 480px, 42vh); aspect-ratio: 4 / 3; margin-block: 8px 18px;
+    width: min(62vw, 480px, 38vh); aspect-ratio: 4 / 3; margin-block: 4px 14px;
     animation: hover 3.2s ease-in-out infinite;
   }
   @keyframes hover { 50% { transform: translateY(-14px); } }
@@ -161,14 +161,22 @@
 
   /* Копилка */
   .bank { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); padding: 10px 18px; width: min(520px, 90vw); display: grid; gap: 6px; }
-  .bank-top { display: flex; align-items: baseline; gap: 8px; justify-content: center; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
-  .bank-top b { font-size: 24px; }
-  .bank-top .muted { font-size: 16px; }
-  .pig { font-size: 26px; }
+  .bank-goal { font-size: 18px; }
+  .bank-why { font-size: 18px; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 8px; }
+  .bank-why b { font-size: 22px; color: var(--ok); }
+  .bank-day { color: var(--muted); font-weight: 700; }
+  .why-n { flex-basis: 100%; color: var(--muted); font-size: 15px; }
+  .bank-goal + .bank-bar + .bank-note + .bank-why { border-top: 1px solid var(--line); padding-top: 6px; }
   .bank-bar { height: 10px; border-radius: 99px; background: var(--line); overflow: hidden; }
   .bank-bar i { display: block; height: 100%; background: var(--star); border-radius: inherit; }
   .bank-note { color: var(--muted); font-size: 15px; }
   .bank-add { font-size: 30px; font-weight: 900; color: var(--ok); }
+  /* Невысокий экран (Safari с панелями): фото поменьше, чтобы кнопка «Полетели!» была видна без прокрутки */
+  @media (max-height: 780px) {
+    .flyer { width: min(62vw, 480px, 30vh); margin-block: 0 8px; }
+    .home .hello { font-size: 18px; }
+    .bank { padding-block: 6px; gap: 3px; }
+  }
   .build { margin: 0; text-align: center; color: var(--muted); font-size: 13px; opacity: .7; font-variant-numeric: tabular-nums; }
   .note { color: var(--muted); max-width: 32ch; margin: 0; text-wrap: balance; }
 

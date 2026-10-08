@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 20:46'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 21:15'; // проставляет .claude/deploy.sh
   const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
@@ -143,7 +143,7 @@
     }
     const my = sess = {
       id: Date.now().toString(36), elapsed: 0, stars: 0, n: 0, first: 0, active: false, seq: 0, demo: !!opts.demo,
-      secrets: 0, lastSecretN: -99,
+      secrets: 0, lastSecretN: -99, secretRub: 0,
       test: t, len: t ? t.minutes * 60e3 : SESSION_MS,
       levels: t ? { flash: t.level, robot: t.level, trap: t.level } : S.levels,
       hist: t ? { flash: [], robot: [], trap: [] } : S.hist,
@@ -201,15 +201,29 @@
   }
   const rub = n => Math.round(n).toLocaleString('ru-RU') + ' ₽';
 
+  // Почему начислено столько: «50 ₽ − 9 ₽ = 41 ₽» и за что минус.
+  function bankEq(e) {
+    const miss = e.n - e.first, lost = e.max - e.add;
+    return miss
+      ? `${rub(e.max)} − ${rub(lost)} = <b>${rub(e.add)}</b><span class="why-n">минус — за ${miss} ${plural(miss, 'задание', 'задания', 'заданий')} не с первого раза</span>`
+      : `<b>${rub(e.add)}</b><span class="why-n">всё с первого раза — вся сумма!</span>`;
+  }
+  const dayWord = d => { const y = new Date(); y.setDate(y.getDate() - 1); return d === st.day() ? 'Сегодня' : d === st.day(y) ? 'Вчера' : d.slice(8, 10) + '.' + d.slice(5, 7); };
+
+  // Карточка копилки на главном: цель и сколько осталось, и из чего сложилась последняя сумма.
   function bankHTML() {
     const b = S.bank, goal = b.goal && b.price > 0;
-    if (!b.total && !goal) return '';
-    const last = b.log.slice(-7), avg = last.length ? last.reduce((x, y) => x + y.add, 0) / last.length : 0;
+    const train = b.log.filter(x => !x.kind), lastT = train[train.length - 1];
+    if (!goal && !lastT) return '';
+    const byDay = {}; b.log.forEach(x => { byDay[x.day] = (byDay[x.day] || 0) + x.add; });
+    const recent = Object.keys(byDay).sort().slice(-7), avg = recent.length ? recent.reduce((x, d) => x + byDay[d], 0) / recent.length : 0;
     const left = goal ? b.price - b.total : 0, days = left > 0 && avg > 0 ? Math.ceil(left / avg) : 0;
+    const sec = lastT ? b.log.filter(x => x.kind === 'secret' && x.day === lastT.day).reduce((x, y) => x + y.add, 0) : 0;
     return `<div class="bank">
-        <div class="bank-top"><span class="pig">🐷</span> <b>${rub(b.total)}</b>${goal ? `<span class="muted">из ${rub(b.price)} · ${esc(b.goal)}</span>` : ''}</div>
-        ${goal ? `<div class="bank-bar"><i style="width:${clamp(b.total / b.price * 100, 2, 100)}%"></i></div>
+        ${goal ? `<div class="bank-goal"><b>Цель: ${esc(b.goal)}</b> — ${rub(b.price)}</div>
+        <div class="bank-bar"><i style="width:${clamp(b.total / b.price * 100, 2, 100)}%"></i></div>
         <div class="bank-note">${left <= 0 ? 'Цель достигнута! 🎉' : `Осталось ${rub(left)}${days ? ` — примерно ${days} ${plural(days, 'день', 'дня', 'дней')}` : ''}`}</div>` : ''}
+        ${lastT ? `<div class="bank-why"><span class="bank-day">${dayWord(lastT.day)}:</span> ${bankEq(lastT)}${sec ? `<span class="why-n">и за секреты +${rub(sec)}</span>` : ''}</div>` : ''}
       </div>`;
   }
 
@@ -595,11 +609,18 @@
     if (my.test) rec.test = true;
     st.addRecord(rec);
     if (!done) return;
-    my.stars++; if (!my.test) { S.stars++; st.touchProgress(); st.save(); }
+    my.stars++;
+    let rubAdd = 0;
+    if (!my.test) {
+      S.stars++;
+      const r = st.bankBonus(st.day());
+      if (r) { rubAdd = r.add; my.secretRub += r.add; st.addEvent('bank-secret', Object.assign({ ver: BUILD, sid: my.id }, r)); }
+      st.touchProgress(); st.save();
+    }
     const sEl = $('#sstars'); if (sEl) sEl.textContent = my.stars;
     const fb = $('#fb');
     fb.className = 'feedback ok';
-    fb.innerHTML = `<span class="pop">✨ ${esc(f.name)}${f.who ? ' — ' + esc(f.who) : ''}! ✨</span><br><span class="pop">⭐ +1</span>`;
+    fb.innerHTML = `<span class="pop">✨ ${esc(f.name)}${f.who ? ' — ' + esc(f.who) : ''}! ✨</span><br><span class="pop">⭐ +1${rubAdd ? ` · 🐷 +${rub(rubAdd)}` : ''}</span>`;
     TTS.speak(f.name + '!');
     const next = $('#next'); next.hidden = false;
     await new Promise(res => { next.onclick = res; });
@@ -685,6 +706,7 @@
         <div class="chips">
           <span class="chip">⭐ ${S.stars}</span>
           ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
+          <span class="chip">🐷 ${rub(S.bank.total)}</span>
         </div>
         ${bankHTML()}
         ${doneToday()
@@ -704,8 +726,9 @@
         <h2>${my.test ? 'Тестовая тренировка закончена' : 'Тренировка закончена!'}</h2>
         <div class="bigstars"><span class="pop">★ ${my.stars}</span></div>
         <p class="note">С первого раза: ${my.first} из ${my.n}</p>
-        ${add ? `<div class="bank-add pop">🐷 +${rub(add.add)} в копилку</div>
-          <p class="note">${add.pct === 100 ? 'Всё с первого раза — максимум!' : `${add.pct}% с первого раза. За 100% — ${rub(S.bank.rate)}`}</p>` : ''}
+        ${add || my.secretRub ? `<div class="bank-add pop">🐷 +${rub((add ? add.add : 0) + my.secretRub)} в копилку</div>
+          <div class="bank-why">${add ? `<span class="bank-day">За тренировку:</span> ${bankEq(add)}` : ''}
+            ${my.secretRub ? `<span class="why-n">${add ? 'и ' : ''}за секреты +${rub(my.secretRub)}</span>` : ''}</div>` : ''}
         ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
         <button class="btn primary" id="home">На главную</button>
         <p class="sync" id="syncline">Сохраняю результаты…</p>
@@ -781,14 +804,16 @@
         <div class="card">
           <h3>Копилка</h3>
           <p class="muted">Раз в день, после первой законченной тренировки: ставка × доля ответов с первого раза (100% — вся ставка, 80% — 80%).
+            Плюс бонус за каждый найденный секрет. Ребёнок видит на главном и в итоге тренировки, из чего сложилась сумма.
             Сейчас: <b>${rub(S.bank.total)}</b>.</p>
           <div class="row">
             <label>Цель: вещь, сумма, поездка<input id="b-goal" value="${esc(S.bank.goal)}" placeholder="Например: самокат" autocomplete="off"></label>
             <label>Сколько стоит, ₽<input id="b-price" type="number" inputmode="numeric" min="0" value="${S.bank.price || ''}"></label>
             <label>За день при 100%, ₽<input id="b-rate" type="number" inputmode="numeric" min="0" value="${S.bank.rate}"></label>
+            <label>За найденный секрет, ₽<input id="b-secret" type="number" inputmode="numeric" min="0" value="${S.bank.secret}"></label>
           </div>
           ${S.bank.log.length ? `<div class="tbl-wrap"><table><tr><th>День</th><th>С 1-го раза</th><th>В копилку</th></tr>
-            ${S.bank.log.slice(-7).reverse().map(x => `<tr><td>${x.day}</td><td>${x.pct}%</td><td>+${rub(x.add)}</td></tr>`).join('')}</table></div>` : ''}
+            ${S.bank.log.slice(-10).reverse().map(x => `<tr><td>${x.day}</td><td>${x.kind === 'secret' ? 'секрет' : `${x.first ?? '?'} из ${x.n ?? '?'} (${x.pct}%)`}</td><td>+${rub(x.add)}</td></tr>`).join('')}</table></div>` : ''}
           <div class="row"><button class="btn small" id="b-reset">Цель куплена — обнулить копилку</button></div>
         </div>
 
@@ -866,15 +891,16 @@
     app.querySelectorAll('input, select').forEach(el => { el.onchange = saveSettings; });
     // Цель и ставка копилки — часть прогресса: уходят в state.json и видны во всех копиях.
     const saveBank = () => {
-      const b = S.bank, before = `${b.goal}|${b.price}|${b.rate}`;
+      const b = S.bank, key = () => `${b.goal}|${b.price}|${b.rate}|${b.secret}`, before = key();
       b.goal = $('#b-goal').value.trim();
       b.price = Math.max(0, Math.round(+$('#b-price').value || 0));
       b.rate = Math.max(0, Math.round(+$('#b-rate').value || 0));
-      if (before === `${b.goal}|${b.price}|${b.rate}`) return;
-      st.addEvent('bank-set', { ver: BUILD, goal: b.goal, price: b.price, rate: b.rate });
+      b.secret = Math.max(0, Math.round(+$('#b-secret').value || 0));
+      if (before === key()) return;
+      st.addEvent('bank-set', { ver: BUILD, goal: b.goal, price: b.price, rate: b.rate, secret: b.secret });
       st.touchProgress(); st.save(); st.pushProgress();
     };
-    ['#b-goal', '#b-price', '#b-rate'].forEach(id => { $(id).onchange = saveBank; });
+    ['#b-goal', '#b-price', '#b-rate', '#b-secret'].forEach(id => { $(id).onchange = saveBank; });
     $('#b-reset').onclick = e => {
       const btn = e.currentTarget;
       if (!btn.dataset.armed) {
@@ -946,8 +972,9 @@
     'parent-open': () => 'Вход в меню взрослых',
     'gate-fail': e => `Неверный ответ на входе в меню взрослых: «${e.answer || ''}»`,
     extra: () => 'Разрешена ещё одна тренировка сегодня',
-    bank: e => `Копилка: +${rub(e.add)} (${e.pct}% с первого раза), всего ${rub(e.total)}`,
-    'bank-set': e => `Копилка: цель «${e.goal || '—'}», ${rub(e.price)}, ставка ${rub(e.rate)} в день`,
+    bank: e => `Копилка: +${rub(e.add)} (${e.first ?? '?'} из ${e.n ?? '?'} с первого раза), всего ${rub(e.total)}`,
+    'bank-set': e => `Копилка: цель «${e.goal || '—'}», ${rub(e.price)}, ставка ${rub(e.rate)} в день, за секрет ${rub(e.secret ?? 0)}`,
+    'bank-secret': e => `Копилка: +${rub(e.add)} за секрет, всего ${rub(e.total)}`,
     'bank-reset': e => `Копилка обнулена (было ${rub(e.total)}, цель «${e.goal || '—'}»)`,
     'key-link': e => (e.replaced ? 'Настройки GitHub заменены из ссылки-ключа' : 'Токен восстановлен из ссылки-ключа — вводить не пришлось'),
   };

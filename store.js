@@ -16,8 +16,9 @@
     stars: 0,
     days: [],             // дни с законченной тренировкой
     extraDay: '',         // день, на который родитель разрешил ещё одну тренировку
-    // Копилка: раз в день после тренировки — rate ₽ × доля ответов с первого раза. Цель и ставку задаёт взрослый.
-    bank: { total: 0, log: [], goal: '', price: 0, rate: 50 },
+    // Копилка: раз в день после тренировки — rate ₽ × доля ответов с первого раза; за найденный секрет — secret ₽.
+    // Цель и ставки задаёт взрослый. log: { day, add, pct, first, n, max } — тренировка; { day, add, kind: 'secret' } — секрет.
+    bank: { total: 0, log: [], goal: '', price: 0, rate: 50, secret: 2 },
     lastSync: '', syncError: '',
     copy: '',             // номер этой копии хранилища — виден в логах и журнале
     family: [],           // имена для «секретов» — из приватного репо (family.json), в публичный код не попадают
@@ -197,13 +198,22 @@
     // ---------- Прогресс в репо (state.json) ----------
     const snapshot = () => ({ levels: Object.assign({}, S.levels), expo: +(+S.expo).toFixed(2), stars: S.stars, days: S.days.length, bank: S.bank.total });
     // Копилка: раз в день ставка × доля ответов с первого раза. Повторная тренировка в тот же день не начисляет.
+    // В записи — из чего сложилась сумма (first из n, максимум max), чтобы ребёнку было видно, почему не 50.
     function bankAdd(first, n, today) {
       const b = S.bank;
-      if (b.log.some(x => x.day === today)) return null;
-      const pct = n ? Math.round(first / n * 100) : 0, add = Math.round(b.rate * pct / 100);
+      if (b.log.some(x => x.day === today && !x.kind)) return null;
+      const pct = n ? Math.round(first / n * 100) : 0, add = Math.round(b.rate * first / Math.max(n, 1));
       b.total += add;
-      b.log.push({ day: today, pct, add }); if (b.log.length > 90) b.log.shift();
-      return { pct, add, total: b.total };
+      b.log.push({ day: today, pct, add, first, n, max: b.rate }); if (b.log.length > 200) b.log.shift();
+      return { pct, add, first, n, max: b.rate, total: b.total };
+    }
+    // Бонус за найденный секрет.
+    function bankBonus(today) {
+      const b = S.bank, add = b.secret;
+      if (!add) return null;
+      b.total += add;
+      b.log.push({ day: today, add, kind: 'secret' }); if (b.log.length > 200) b.log.shift();
+      return { add, total: b.total };
     }
     function touchProgress() { S.progAt = new Date().toISOString(); }
     async function getState() {
@@ -248,7 +258,7 @@
 
     return {
       S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
-      isNewCopy, snapshot, touchProgress, bankAdd, refreshFamily, pullProgress, pushProgress,
+      isNewCopy, snapshot, touchProgress, bankAdd, bankBonus, refreshFamily, pullProgress, pushProgress,
     };
   }
 
