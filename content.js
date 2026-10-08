@@ -278,8 +278,27 @@
         pred: i => !!i.fruit && i.color !== 'yellow', exact: 2 };
     },
   };
+  // Ещё простые команды для уровня 1: без них за блок одни и те же фразы шли по 3–4 раза (проверка родителя 08.10).
+  Object.assign(ROBOT, {
+    R8() {
+      const s = pick(SHAPES), c = pick(COLORS);
+      return { field: 'shape', text: `Нажми на все ${c.pl} ${s.pl}.`, trap: [c.pl, s.pl], why: `Нужно сразу оба: и ${c.pl}, и ${s.pl}`,
+        pred: i => i.shape === s.id && i.color === c.id, near: i => (i.shape === s.id) !== (i.color === c.id) };
+    },
+    A7() { return { field: 'animal', text: 'Нажми на всех, у кого есть крылья.', trap: ['крылья'], why: 'Крылья — у тех, кто летает', pred: i => !!i.fly }; },
+    P8() {
+      const c = pick(['red', 'yellow', 'green', 'orange']);
+      return { field: 'food', text: `Нажми на все ${FOOD_COLORS[c]} фрукты.`, trap: [FOOD_COLORS[c]], why: `Только фрукты, и только ${FOOD_COLORS[c]}`,
+        pred: i => !!i.fruit && i.color === c, near: i => !!i.fruit && i.color !== c };
+    },
+    P9() {
+      const c = pick(['green', 'orange']);
+      return { field: 'food', text: `Нажми на все ${FOOD_COLORS[c]} овощи.`, trap: [FOOD_COLORS[c]], why: `Только овощи, и только ${FOOD_COLORS[c]}`,
+        pred: i => !i.fruit && i.color === c, near: i => !!i.fruit && i.color === c };
+    },
+  });
   const ROBOT_BY_LEVEL = {
-    1: ['R1', 'R2', 'A1', 'A2', 'P1', 'P2'],
+    1: ['R1', 'R2', 'R8', 'R8', 'A1', 'A2', 'A7', 'P1', 'P2', 'P8', 'P9'],
     2: ['R3', 'R4', 'R5', 'A3', 'A4', 'P3', 'P4'],
     3: ['R3', 'R6', 'R7', 'A5', 'A6', 'P4', 'P5', 'P6'],
   };
@@ -379,7 +398,6 @@
       () => { const [a, b] = pickDistinct(LETTERS, 2); return `Не подчёркивай слова с буквой ${a}, подчеркни только слова с буквой ${b}.`; },
       () => { const n = 8 + rnd(8), k = 2 + rnd(n - 3); return `Зачеркни все числа меньше ${n}, кроме ${k}.`; },
       () => 'Реши каждый второй пример, но не решай примеры со звёздочкой.',
-      () => `Обведи числа больше ${NUM_GT()}, но не больше ${20 + rnd(10)}.`,
       () => `Возьми только цветные карандаши и не бери ${pick(['синий', 'красный', 'зелёный'])}.`,
       () => `Сначала найди все слова без буквы ${pick(['Р', 'К', 'С'])}, а потом не подчёркивай их.`,
       () => ROBOT.A5().text,

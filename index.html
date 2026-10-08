@@ -161,6 +161,8 @@
 
   /* Копилка */
   .bank { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); padding: 10px 18px; width: min(520px, 90vw); display: grid; gap: 6px; }
+  .piggy { width: 1.6em; height: 1.6em; vertical-align: -0.45em; }
+  .chip .piggy { margin-block: -6px; }
   .bank-goal { font-size: 18px; }
   .bank-why { font-size: 18px; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 8px; }
   .bank-why b { font-size: 22px; color: var(--ok); }
@@ -262,6 +264,16 @@
   .slots { display: flex; gap: 8px; justify-content: center; }
   .slots span { width: 52px; height: 60px; display: grid; place-items: center; border-radius: 12px; border: 3px dashed var(--line); font-size: 32px; font-weight: 900; color: var(--muted); }
   .slots span.on { border: 3px solid var(--star); background: var(--mark); color: var(--ink); animation: pop .4s ease-out; }
+  /* Разбор ошибки: картинки приглушены, фраза — в фокусе; тык по картинкам «подталкивает» к фразе */
+  .dim { opacity: .3; filter: grayscale(.6); pointer-events: auto; }
+  .dim > * { pointer-events: none; }
+  .prompt.focus { outline: 4px solid var(--accent); outline-offset: 2px; }
+  .prompt.nudge { animation: nudge .5s; }
+  @keyframes nudge { 30% { transform: scale(1.03); } 60% { transform: scale(.99); } }
+  .hint.go { color: var(--accent); font-weight: 800; font-size: 20px; }
+  .count { display: flex; gap: 10px; justify-content: center; }
+  .count i { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--accent); }
+  .count i.on { background: var(--accent); animation: pop .4s ease-out; }
   .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
   .feedback:empty { display: none; }
   .feedback { text-align: center; font-size: 26px; font-weight: 800; min-height: 36px; margin: 0; }

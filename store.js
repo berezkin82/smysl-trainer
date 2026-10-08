@@ -24,6 +24,7 @@
     bank: { total: 0, log: [], goal: '', price: 0, rate: 50, secret: 2 },
     lastSync: '', syncError: '',
     copy: '',             // номер этой копии хранилища — виден в логах и журнале
+    recent: [],           // последние фразы заданий — чтобы не повторялись изо дня в день
     family: [],           // имена для «секретов» — из приватного репо (family.json), в публичный код не попадают
     progAt: '',           // когда последний раз менялся прогресс (для сверки с state.json)
   };
@@ -202,7 +203,8 @@
     // Событие для журнала (вход в меню, сброс, смена уровня…): уходит в логи вместе с ответами, game: 'event'.
     let evSeq = 0;
     function addEvent(ev, data) {
-      addRecord(Object.assign({ id: `${S.copy}-${Date.now().toString(36)}-${++evSeq}`, game: 'event', ev }, data));
+      // game: 'event' — последним, чтобы поле данных его не перезаписало (до 08.10 так терялась пометка у смены уровня).
+      addRecord(Object.assign({ id: `${S.copy}-${Date.now().toString(36)}-${++evSeq}`, ev }, data, { game: 'event' }));
     }
 
     // ---------- Прогресс в репо (state.json) ----------

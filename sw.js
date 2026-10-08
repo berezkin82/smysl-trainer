@@ -1,8 +1,8 @@
 // Офлайн-кэш: сначала сеть (в обход HTTP-кэша, чтобы новая версия была видна сразу),
 // без сети — сохранённая копия. Кэш фото (smysl-photos) не трогаем.
-const CACHE = 'smysl-shell-v3';
+const CACHE = 'smysl-shell-v4';
 const SHELL = ['./', './index.html', './app.js', './content.js', './store.js', './manifest.webmanifest',
-  './icon-180.png', './icon-192.png', './icon-512.png',
+  './icon-180.png', './icon-192.png', './icon-512.png', './piggy.svg',
   // Картинки заданий (img/) — чтобы игры работали без сети.
   './img/automobile.png', './img/balloon.png', './img/banana.png', './img/bear.png', './img/bird.png',
   './img/blue_book.png', './img/blue_circle.png', './img/blue_heart.png', './img/blue_square.png', './img/broccoli.png',

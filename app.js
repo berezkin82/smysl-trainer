@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 21:46'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 22:32'; // проставляет .claude/deploy.sh
   // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
   const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
   const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3, BLOCK_MS = SESSION_MS / 6;
@@ -44,9 +44,12 @@
       if (!('speechSynthesis' in window)) return;
       const choose = () => {
         // Сначала качественные голоса: компактные на iPad звучат сдавленно.
-        const rank = v => (/premium|высок/i.test(v.name + v.voiceURI) ? 0 : /enhanced|улучш/i.test(v.name + v.voiceURI) ? 1 : 2);
+        // Сетевые голоса (в Chrome — «Google русский») иногда не начинают или обрываются через ~15 с — их в конец.
+        const rank = v => (v.localService === false ? 10 : 0) + (/premium|высок/i.test(v.name + v.voiceURI) ? 0 : /enhanced|улучш/i.test(v.name + v.voiceURI) ? 1 : 2);
         this.list = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)).sort((a, b) => rank(a) - rank(b));
-        this.voice = this.list.find(v => v.voiceURI === S.settings.voice) || this.list[0] || null;
+        // Сохранённый сетевой голос не берём, если есть локальный.
+        const saved = this.list.find(v => v.voiceURI === S.settings.voice);
+        this.voice = (saved && (saved.localService !== false || this.list[0].localService === false) ? saved : this.list[0]) || null;
         this.ok = !!this.voice;
       };
       choose();
@@ -54,21 +57,34 @@
     },
     unlock() { // iOS разрешает речь только после касания: «прогреваем» при нажатии кнопки
       if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u);
+      const u = this.u0 = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u);
     },
-    async speak(text) {
+    // Известные сбои Safari: фраза молчит, если объект речи собран сборщиком мусора (держим ссылку в this.u),
+    // если отменять пустую очередь или если выбранный голос «устарел» (тогда повторяем без явного голоса).
+    // Сбой пишем в журнал (событие tts-fail), чтобы было видно по логам.
+    fails: 0,
+    async speak(text, retry) {
       if (!this.ok) return;
-      speechSynthesis.cancel();
-      await wait(60);
-      return new Promise(res => {
-        const u = new SpeechSynthesisUtterance(text);
-        u.voice = this.voice; u.lang = this.voice.lang; u.rate = 0.9;
-        let done = false;
-        const fin = () => { if (!done) { done = true; res(); } };
-        u.onend = fin; u.onerror = fin;
-        setTimeout(fin, 2000 + text.length * 110); // страховка: onend на iOS иногда не приходит
+      if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); await wait(80); }
+      const ok = await new Promise(res => {
+        const u = this.u = new SpeechSynthesisUtterance(text);
+        if (!retry) u.voice = this.voice;
+        // Тон выше и темп чуть быстрее обычного — звучит бодрее (родитель: «томный, нужен весёлый»).
+        u.lang = (this.voice && this.voice.lang) || 'ru-RU'; u.rate = 0.95; u.pitch = 1.2;
+        let done = false, started = false;
+        const fin = v => { if (!done) { done = true; res(v); } };
+        u.onstart = () => { started = true; };
+        u.onend = () => fin(true);
+        u.onerror = e => fin(e && e.error === 'interrupted' ? true : started);
+        setTimeout(() => { if (!started) fin(false); }, 2500); // не начал говорить — повторим без явного голоса
+        setTimeout(() => fin(started), 2000 + text.length * 110); // страховка: onend на iOS иногда не приходит
         speechSynthesis.speak(u);
       });
+      if (!ok && !retry) {
+        this.fails++;
+        st.addEvent('tts-fail', { ver: BUILD, voice: this.voice ? this.voice.name : '', n: this.fails });
+        return this.speak(text, true);
+      }
     },
     stop() { if ('speechSynthesis' in window) speechSynthesis.cancel(); },
   };
@@ -205,6 +221,7 @@
     return r;
   }
   const rub = n => Math.round(n).toLocaleString('ru-RU') + ' ₽';
+  const PIG = '<img class="piggy" src="piggy.svg" alt="Копилка">';
 
   // Почему начислено столько: «50 ₽ − 9 ₽ = 41 ₽» и за что минус.
   function bankEq(e) {
@@ -272,7 +289,7 @@
       else if (h.length >= 4 && sum(h.slice(-4)) <= 1 && L[game] > 1) { L[game]--; H[game] = []; }
       if (!my.test) {
         st.touchProgress();
-        if (L[game] !== lv0) st.addEvent('level', { ver: BUILD, sid: my.id, game, from: lv0, to: L[game] });
+        if (L[game] !== lv0) st.addEvent('level', { ver: BUILD, sid: my.id, which: game, from: lv0, to: L[game] });
       }
       if (game === 'flash' && mode === 'read') {
         const e = my.test ? my.expo : S.expo;
@@ -308,12 +325,16 @@
   // потом видит и слышит, что это слово значит, — и только тогда пробует ещё раз.
   // Возвращает { ok: нашёл ли слово сам, taps: что нажимал }.
   async function findWord(my, task) {
-    const prompt = $('#prompt'), parts = C.tokens(task.text);
+    const prompt = $('#prompt'), parts = C.tokens(task.text), answers = $('#opts') || $('#field');
+    // Картинки на время поиска приглушены и не нажимаются; нажатие по ним подсвечивает фразу — «тебе сюда».
+    answers.classList.add('dim'); prompt.classList.add('focus');
+    const nudge = () => { prompt.classList.remove('nudge'); void prompt.offsetWidth; prompt.classList.add('nudge'); };
+    answers.addEventListener('pointerdown', nudge);
     const keys = new Set(task.trap.map(w => w.toLowerCase()));
     const need = parts.map((p, i) => (C.isWord(p) && keys.has(p.toLowerCase()) ? i : -1)).filter(i => i >= 0);
-    prompt.innerHTML = `<p class="ask">Найди слово, из-за которого ошибка</p>
+    prompt.innerHTML = `<p class="ask">Ошибка. Найди одно слово, из-за которого она</p>
       <p class="sentence trapline" id="fline">${parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
-      <p class="hint" id="fhint">Нажми на него</p>`;
+      <p class="hint" id="fhint">👆 Нажми на это слово во фразе</p>`;
     const line = $('#fline'), taps = [];
     let wrong = 0, ok = false;
     await new Promise(res => {
@@ -332,6 +353,8 @@
     TTS.speak(task.why);
     await new Promise(res => { $('#fgo').onclick = res; });
     alive(my); TTS.stop();
+    answers.removeEventListener('pointerdown', nudge);
+    answers.classList.remove('dim'); prompt.classList.remove('focus', 'nudge');
     return { ok, taps };
   }
 
@@ -392,7 +415,7 @@
       if (!correct && attempts < 2) {
         busy = true; again.disabled = true;
         find = await findWord(my, task);
-        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p><p class="hint">Выбери картинку ещё раз</p>`;
+        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p><p class="hint go">👇 Теперь выбери картинку ещё раз</p>`;
         busy = false; again.disabled = false;
       }
     }
@@ -468,7 +491,7 @@
         busy = true; again.disabled = true;
         cells.forEach((c, i) => { if (sel.has(i) && !task.pred(task.items[i])) c.classList.add('bad'); });
         find = await findWord(my, task);
-        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p>`;
+        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p><p class="hint go">👇 Исправь картинки и нажми «Готово»</p>`;
         busy = false; again.disabled = false;
       }
     }
@@ -494,7 +517,8 @@
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt">
-          <p class="ask">${n > 1 ? `Найди ${n} ${plural(n, 'слово', 'слова', 'слов')}-ловушки` : 'Найди слово-ловушку'}</p>
+          <p class="ask">${n > 1 ? `Здесь ${n} ${plural(n, 'слово', 'слова', 'слов')}-ловушки — найди все` : 'Найди слово-ловушку'}</p>
+          ${n > 1 ? `<div class="count" id="cnt">${'<i></i>'.repeat(n)}</div>` : ''}
           <p class="sentence trapline" id="line">${task.parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
           <p class="hint" id="hint">Слово, от которого меняется смысл</p>
         </div>
@@ -514,7 +538,9 @@
         if (rt === null) rt = Math.round(performance.now() - tAsk);
         if (task.need.includes(i)) {
           found.add(i); b.classList.add('hit');
+          const dots = app.querySelectorAll('#cnt i'); if (dots[found.size - 1]) dots[found.size - 1].classList.add('on');
           if (found.size === n) res();
+          else $('#hint').textContent = `Найдено ${found.size} из ${n}. Ищи ${n - found.size === 1 ? 'ещё одно' : 'ещё ' + (n - found.size)}!`;
         } else {
           wrong++; b.classList.add('bad');
           if (wrong >= 2) res();
@@ -556,13 +582,30 @@
     const fresh = S.family.filter(f => !(my.shownNames || []).includes(f.name));
     my.secretFor = pick(fresh.length ? fresh : S.family);
   }
-  // Задание с секретом подбираем: перебираем варианты, пока имя не уложится в буквы фразы.
+  // Подбор задания: без повторов фразы за тренировку и, по возможности, без недавних (S.recent — последние 150
+  // по всем дням). Если задумано задание с секретом — ещё и так, чтобы имя уложилось в буквы фразы.
   function makeTask(my, make) {
-    if (!my.secretFor) return make();
-    for (let k = 0; k < 80; k++) { const t = make(); if (fitsSeq(t.text, my.secretFor.name)) return t; }
-    for (let k = 0; k < 40; k++) { const t = make(); const f = S.family.find(x => fitsSeq(t.text, x.name)); if (f) { my.secretFor = f; return t; } }
-    my.secretFor = null;
-    return make();
+    const recent = new Set(S.recent), seen = my.seenTexts = my.seenTexts || new Set();
+    const choose = (n, want) => {
+      let alt = null;
+      for (let k = 0; k < n; k++) {
+        const t = make();
+        if (seen.has(t.text) || !want(t)) continue;
+        if (!recent.has(t.text)) return t;
+        alt = alt || t;
+      }
+      return alt;
+    };
+    let t = null;
+    if (my.secretFor) {
+      t = choose(120, x => fitsSeq(x.text, my.secretFor.name));
+      if (!t) { t = choose(80, x => S.family.some(f => fitsSeq(x.text, f.name))); if (t) my.secretFor = S.family.find(f => fitsSeq(t.text, f.name)); }
+      if (!t) my.secretFor = null;
+    }
+    t = t || choose(150, () => true) || make();
+    seen.add(t.text);
+    if (!my.demo && !my.test) { S.recent = S.recent.concat(t.text).slice(-150); }
+    return t;
   }
 
   async function maybeSecret(my, text) {
@@ -626,7 +669,7 @@
     const sEl = $('#sstars'); if (sEl) sEl.textContent = my.stars;
     const fb = $('#fb');
     fb.className = 'feedback ok';
-    fb.innerHTML = `<span class="pop">✨ ${esc(f.name)}${f.who ? ' — ' + esc(f.who) : ''}! ✨</span><br><span class="pop">⭐ +1${rubAdd ? ` · 🐷 +${rub(rubAdd)}` : ''}</span>`;
+    fb.innerHTML = `<span class="pop">✨ ${esc(f.name)}${f.who ? ' — ' + esc(f.who) : ''}! ✨</span><br><span class="pop">⭐ +1${rubAdd ? ` · ${PIG} +${rub(rubAdd)}` : ''}</span>`;
     TTS.speak(f.name + '!');
     const next = $('#next'); next.hidden = false;
     await new Promise(res => { next.onclick = res; });
@@ -712,7 +755,7 @@
         <div class="chips">
           <span class="chip">⭐ ${S.stars}</span>
           ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
-          <span class="chip">🐷 ${rub(S.bank.total)}</span>
+          <span class="chip">${PIG} ${rub(S.bank.total)}</span>
         </div>
         ${bankHTML()}
         ${doneToday()
@@ -732,7 +775,7 @@
         <h2>${my.test ? 'Тестовая тренировка закончена' : 'Тренировка закончена!'}</h2>
         <div class="bigstars"><span class="pop">★ ${my.stars}</span></div>
         <p class="note">С первого раза: ${my.first} из ${my.n}</p>
-        ${add || my.secretRub ? `<div class="bank-add pop">🐷 +${rub((add ? add.add : 0) + my.secretRub)} ${my.test ? '— было бы в копилку (в тесте не начисляется)' : 'в копилку'}</div>
+        ${add || my.secretRub ? `<div class="bank-add pop">${PIG} +${rub((add ? add.add : 0) + my.secretRub)} ${my.test ? '— было бы в копилку (в тесте не начисляется)' : 'в копилку'}</div>
           <div class="bank-why">${add ? `<span class="bank-day">За тренировку:</span> ${bankEq(add)}` : ''}
             ${my.secretRub ? `<span class="why-n">${add ? 'и ' : ''}за секреты +${rub(my.secretRub)}</span>` : ''}</div>` : ''}
         ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
@@ -975,7 +1018,7 @@
     'new-copy': () => 'Новая копия хранилища: прогресс с нуля',
     'cloud-load': e => `Прогресс взят из GitHub (от копии ${e.from || '?'}): уровни ${lv(e.before)} → ${lv(e.after)}, звёзды ${e.before.stars} → ${e.after.stars}`,
     reset: e => `Сброс прогресса взрослым (было: уровни ${lv(e.before)}, звёзды ${e.before ? e.before.stars : '?'})`,
-    level: e => `${GAME_NAME[e.game] || e.game}: уровень ${e.from} → ${e.to} — ${e.to > e.from ? '5 из 6 последних с первого раза' : 'из 4 последних с первого раза не больше 1'}`,
+    level: e => `${GAME_NAME[e.which || e.game] || e.which || e.game}: уровень ${e.from} → ${e.to} — ${e.to > e.from ? '5 из 6 последних с первого раза' : 'из 4 последних с первого раза не больше 1'}`,
     'parent-open': () => 'Вход в меню взрослых',
     'gate-fail': e => `Неверный ответ на входе в меню взрослых: «${e.answer || ''}»`,
     extra: () => 'Разрешена ещё одна тренировка сегодня',
@@ -983,6 +1026,7 @@
     'bank-set': e => `Копилка: цель «${e.goal || '—'}», ${rub(e.price)}, ставка ${rub(e.rate)} в день, за секрет ${rub(e.secret ?? 0)}`,
     'bank-secret': e => `Копилка: +${rub(e.add)} за секрет, всего ${rub(e.total)}`,
     'bank-reset': e => `Копилка обнулена (было ${rub(e.total)}, цель «${e.goal || '—'}»)`,
+    'tts-fail': e => `Голос не зазвучал (${e.voice || 'голос по умолчанию'}), повтор без выбора голоса`,
     'key-link': e => (e.replaced ? 'Настройки GitHub заменены из ссылки-ключа' : 'Токен восстановлен из ссылки-ключа — вводить не пришлось'),
   };
   const evText = e => (EV_TEXT[e.ev] ? EV_TEXT[e.ev](e) : e.ev);
