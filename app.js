@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 22:32'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 23:37'; // проставляет .claude/deploy.sh
   // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
   const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
   const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3, BLOCK_MS = SESSION_MS / 6;
@@ -22,7 +22,7 @@
   const GAMES = {
     trap: {
       title: 'Ловушка', icon: '🪤',
-      read: 'В каждой фразе прячется слово, от которого меняется смысл: «не», «кроме», «только»… Найди его и нажми.',
+      read: 'В каждой фразе есть слово-ловушка, от которого меняется смысл: «не», «кроме», «только». Иногда их два. Найди и нажми.',
     },
     flash: {
       title: 'Вспышка', icon: '⚡',
@@ -63,8 +63,14 @@
     // если отменять пустую очередь или если выбранный голос «устарел» (тогда повторяем без явного голоса).
     // Сбой пишем в журнал (событие tts-fail), чтобы было видно по логам.
     fails: 0,
+    // Голосу — без кавычек, многоточий, тире и эмодзи: иначе синтезатор произносит их как символы.
+    // «кроме красных» — … → «кроме красных. …» (пауза); остальные тире — просто пробел: «Слева шарик, посередине груша».
+    clean: t => String(t).replace(/^«([^»]+)»\s[—–-]\s/, '$1. ').replace(/[«»"“”„]/g, '').replace(/…/g, '.').replace(/\s[—–-]\s/g, ' ')
+      .replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/\s+/g, ' ').trim(),
     async speak(text, retry) {
       if (!this.ok) return;
+      text = this.clean(text);
+      if (!text) return;
       if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); await wait(80); }
       const ok = await new Promise(res => {
         const u = this.u = new SpeechSynthesisUtterance(text);
@@ -94,10 +100,29 @@
     const set = new Set((trap || []).map(w => w.toLowerCase()));
     return text.split(/([А-Яа-яЁё0-9]+)/).map(p => (set.has(p.toLowerCase()) ? `<mark>${esc(p)}</mark>` : esc(p))).join('');
   }
+  // Фраза из слов-кнопок. Знаки после слова держатся с ним в одном неразрывном блоке — иначе при переносе
+  // строка начиналась с запятой (проверка родителя 08.10).
+  function wordButtons(parts) {
+    let html = '';
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (!C.isWord(p)) { html += esc(p); continue; }
+      const next = parts[i + 1] || '', punct = next.match(/^\S*/)[0];
+      html += `<span class="nw"><button class="w" data-i="${i}">${esc(p)}</button>${esc(punct)}</span>`;
+      if (next) { parts = parts.slice(); parts[i + 1] = next.slice(punct.length); }
+    }
+    return html;
+  }
   const sentence = (text, trap) => `<p class="sentence">${trap ? markTrap(text, trap) : esc(text)}</p>`;
   // Картинка предмета; если файла нет — сам эмодзи.
   const pic = e => { const f = C.imgFile(e); return f ? `<img class="pic" src="${f}" alt="" draggable="false">` : `<span>${e}</span>`; };
-  const sceneHTML = s => s.items.map(pic).join('');
+  // Одинаковые предметы подряд — одной группой: при переносе группа не рвётся, считать удобнее
+  // (было: «3 мишки и мяч» на одной строке, ещё 3 мяча — на другой).
+  const sceneHTML = s => {
+    const runs = [];
+    s.items.forEach(e => { const r = runs[runs.length - 1]; if (r && r[0] === e && !s.ordered) r.push(e); else runs.push([e]); });
+    return runs.map(r => `<span class="grp">${r.map(pic).join('')}</span>`).join('');
+  };
   // Картинки заранее в память: во «Вспышке» варианты появляются сразу после фразы, ждать загрузки нельзя.
   Object.keys(C.IMG).forEach(e => { new Image().src = C.imgFile(e); });
 
@@ -330,11 +355,11 @@
     answers.classList.add('dim'); prompt.classList.add('focus');
     const nudge = () => { prompt.classList.remove('nudge'); void prompt.offsetWidth; prompt.classList.add('nudge'); };
     answers.addEventListener('pointerdown', nudge);
-    const keys = new Set(task.trap.map(w => w.toLowerCase()));
-    const need = parts.map((p, i) => (C.isWord(p) && keys.has(p.toLowerCase()) ? i : -1)).filter(i => i >= 0);
-    prompt.innerHTML = `<p class="ask">Ошибка. Найди одно слово, из-за которого она</p>
-      <p class="sentence trapline" id="fline">${parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
-      <p class="hint" id="fhint">👆 Нажми на это слово во фразе</p>`;
+    // Засчитываем любое смысловое слово: ошибка бывает и в числе, и в цвете, и в «не» — не угадываем, в каком.
+    const need = parts.map((p, i) => (C.isWord(p) && C.keyWord(p, task.trap) ? i : -1)).filter(i => i >= 0);
+    prompt.innerHTML = `<p class="ask">Ой, ошибка! Прочитай ещё раз и нажми на самое важное слово</p>
+      <p class="sentence trapline" id="fline">${wordButtons(parts)}</p>
+      <p class="hint" id="fhint">👆 Например, число, цвет или «не»</p>`;
     const line = $('#fline'), taps = [];
     let wrong = 0, ok = false;
     await new Promise(res => {
@@ -344,13 +369,13 @@
         taps.push(parts[i].toLowerCase());
         if (need.includes(i)) { ok = true; res(); return; }
         b.classList.add('bad'); wrong++;
-        if (wrong >= 2) res(); else $('#fhint').textContent = 'Не это слово. Ищи ещё!';
+        if (wrong >= 2) res(); else $('#fhint').textContent = 'Это слово не главное. Ищи ещё!';
       };
     });
     alive(my);
     prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${ok ? '👍 ' : ''}${esc(task.why)}</p>
       <div class="actions"><button class="btn primary small" id="fgo">Попробую ещё раз</button></div>`;
-    TTS.speak(task.why);
+    TTS.speak(task.whySay || task.why);
     await new Promise(res => { $('#fgo').onclick = res; });
     alive(my); TTS.stop();
     answers.removeEventListener('pointerdown', nudge);
@@ -519,7 +544,7 @@
         <div class="prompt">
           <p class="ask">${n > 1 ? `Здесь ${n} ${plural(n, 'слово', 'слова', 'слов')}-ловушки — найди все` : 'Найди слово-ловушку'}</p>
           ${n > 1 ? `<div class="count" id="cnt">${'<i></i>'.repeat(n)}</div>` : ''}
-          <p class="sentence trapline" id="line">${task.parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
+          <p class="sentence trapline" id="line">${wordButtons(task.parts)}</p>
           <p class="hint" id="hint">Слово, от которого меняется смысл</p>
         </div>
         <p class="feedback" id="fb"></p>
