@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 20:04'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 20:25'; // проставляет .claude/deploy.sh
   const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
@@ -214,6 +214,7 @@
       // «Робот»: поле и что нажато на каждой попытке — видно, ошибка в смысле или в картинках.
       if (r.field) { rec.field = r.field; rec.picks = r.picks; }
       if (r.taps) rec.taps = r.taps; // «Ловушка»: какие слова нажаты по порядку
+      if (r.find) rec.find = r.find; // разбор ошибки: нашёл ли сам слово, из-за которого ошибся
       if (my.test) rec.test = true;
       st.addRecord(rec);
       // Уровни и история: у ребёнка — сохранённые, в тесте — свои на время сессии.
@@ -245,7 +246,7 @@
     const fb = $('#fb');
     fb.className = 'feedback ' + (correct ? 'ok' : 'bad');
     fb.innerHTML = first ? `<span class="pop">⭐</span> ${pick(PRAISE)}`
-      : correct ? text.ok || 'Правильно! Подчёркнутые слова помогли.'
+      : correct ? text.ok || 'Правильно! Со второй попытки.'
       : text.bad || 'Ничего! Посмотри, как было правильно.';
     if (levelUp) fb.innerHTML += '<br><span class="pop">🚀 Новый уровень!</span>';
     const next = $('#next');
@@ -253,6 +254,38 @@
     next.hidden = false;
     await new Promise(res => { next.onclick = res; });
     alive(my);
+  }
+
+  // ---------- Разбор ошибки ----------
+  // После первой ошибки ребёнок сам ищет во фразе слово, из-за которого ответ другой (как в «Ловушке»),
+  // потом видит и слышит, что это слово значит, — и только тогда пробует ещё раз.
+  // Возвращает { ok: нашёл ли слово сам, taps: что нажимал }.
+  async function findWord(my, task) {
+    const prompt = $('#prompt'), parts = C.tokens(task.text);
+    const keys = new Set(task.trap.map(w => w.toLowerCase()));
+    const need = parts.map((p, i) => (C.isWord(p) && keys.has(p.toLowerCase()) ? i : -1)).filter(i => i >= 0);
+    prompt.innerHTML = `<p class="ask">Найди слово, из-за которого ошибка</p>
+      <p class="sentence trapline" id="fline">${parts.map((p, i) => (C.isWord(p) ? `<button class="w" data-i="${i}">${esc(p)}</button>` : esc(p))).join('')}</p>
+      <p class="hint" id="fhint">Нажми на него</p>`;
+    const line = $('#fline'), taps = [];
+    let wrong = 0, ok = false;
+    await new Promise(res => {
+      line.onclick = e => {
+        const b = e.target.closest('.w'); if (!b || b.classList.contains('bad')) return;
+        const i = +b.dataset.i;
+        taps.push(parts[i].toLowerCase());
+        if (need.includes(i)) { ok = true; res(); return; }
+        b.classList.add('bad'); wrong++;
+        if (wrong >= 2) res(); else $('#fhint').textContent = 'Не это слово. Ищи ещё!';
+      };
+    });
+    alive(my);
+    prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${ok ? '👍 ' : ''}${esc(task.why)}</p>
+      <div class="actions"><button class="btn primary small" id="fgo">Попробую ещё раз</button></div>`;
+    TTS.speak(task.why);
+    await new Promise(res => { $('#fgo').onclick = res; });
+    alive(my); TTS.stop();
+    return { ok, taps };
   }
 
   // ---------- «Вспышка» ----------
@@ -274,7 +307,7 @@
       </section>`;
     bindExit();
     const prompt = $('#prompt'), opts = $('#opts'), again = $('#again');
-    let replays = 0, attempts = 0, correct = false, rt = null, busy = false, readMs = null;
+    let replays = 0, attempts = 0, correct = false, rt = null, busy = false, readMs = null, find = null;
 
     const present = async () => {
       busy = true; again.disabled = true; opts.hidden = true;
@@ -310,14 +343,16 @@
       btn.classList.add(correct ? 'ok' : 'bad');
       if (!correct) btn.disabled = true;
       if (!correct && attempts < 2) {
-        prompt.innerHTML = sentence(task.text, task.trap) + '<p class="hint">Посмотри на подчёркнутые слова и попробуй ещё раз</p>';
-        if (mode === 'audio') TTS.speak(task.say || task.text);
+        busy = true; again.disabled = true;
+        find = await findWord(my, task);
+        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p><p class="hint">Выбери картинку ещё раз</p>`;
+        busy = false; again.disabled = false;
       }
     }
     opts.onclick = null; again.onclick = null; again.hidden = true;
     [...opts.children].forEach((b, i) => { b.disabled = true; if (C.sceneKey(task.options[i]) === okKey) b.classList.add('ok'); });
-    prompt.innerHTML = sentence(task.text, task.trap);
-    const r = { correct, attempts, replays, rt, expo: mode === 'read' ? expo : null, readMs };
+    prompt.innerHTML = sentence(task.text, task.trap) + (correct && attempts === 1 ? '' : `<p class="why1">${esc(task.why)}</p>`);
+    const r = { correct, attempts, replays, rt, expo: mode === 'read' ? expo : null, readMs, find };
     const first = finishTask(my, 'flash', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
   }
@@ -340,7 +375,7 @@
     const prompt = $('#prompt'), field = $('#field'), again = $('#again'), check = $('#check');
     const cells = [...field.children];
     const sel = new Set();
-    let replays = 0, attempts = 0, correct = false, rt = null, busy = false;
+    let replays = 0, attempts = 0, correct = false, rt = null, busy = false, find = null;
     const picks = [];
     const ASK = '<p class="ask">Выполни команду</p>';
 
@@ -361,7 +396,7 @@
       const c = e.target.closest('.cell'); if (!c || busy) return;
       const i = +c.dataset.i;
       if (sel.has(i)) sel.delete(i); else sel.add(i);
-      c.classList.toggle('sel', sel.has(i)); c.setAttribute('aria-pressed', sel.has(i));
+      c.classList.toggle('sel', sel.has(i)); c.setAttribute('aria-pressed', sel.has(i)); c.classList.remove('bad');
       check.disabled = sel.size === 0;
     };
     again.onclick = async () => {
@@ -381,25 +416,24 @@
       picks.push([...sel].sort((a, b) => a - b));
       correct = C.robotCheck(task, sel);
       if (!correct && attempts < 2) {
-        busy = true;
+        // Лишние нажатия остаются зачёркнутыми, пока их не снимут; пропущенные не подсказываем.
+        busy = true; again.disabled = true;
         cells.forEach((c, i) => { if (sel.has(i) && !task.pred(task.items[i])) c.classList.add('bad'); });
-        prompt.innerHTML = sentence(task.text, task.trap) + '<p class="hint">Посмотри на подчёркнутые слова и исправь</p>';
-        if (mode === 'audio') TTS.speak(task.say || task.text);
-        await wait(1200); alive(my);
-        cells.forEach(c => c.classList.remove('bad'));
-        busy = false;
+        find = await findWord(my, task);
+        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p>`;
+        busy = false; again.disabled = false;
       }
     }
     field.onclick = null; check.hidden = true; again.hidden = true;
     busy = true;
-    prompt.innerHTML = sentence(task.text, task.trap) + (task.exact && !correct ? `<p class="hint">Нужно было выбрать ровно ${task.exact}</p>` : '');
+    prompt.innerHTML = sentence(task.text, task.trap) + (correct && attempts === 1 ? '' : `<p class="why1">${esc(task.why)}</p>`);
     cells.forEach((c, i) => {
       const need = task.pred(task.items[i]);
       if (sel.has(i) && need) c.classList.add('hit');
       else if (sel.has(i)) c.classList.add('bad');
       else if (need && !correct) c.classList.add('need');
     });
-    const r = { correct, attempts, replays, rt, field: task.items.map(it => it.e).join(' '), picks };
+    const r = { correct, attempts, replays, rt, field: task.items.map(it => it.e).join(' '), picks, find };
     const first = finishTask(my, 'robot', mode, task, r);
     await showResult(my, first, correct, r.levelUp);
   }

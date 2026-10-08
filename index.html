@@ -210,7 +210,8 @@
   /* Альбомный iPad: поле в два ряда, чтобы помещалось без прокрутки даже с панелью Safari */
   @media (orientation: landscape) and (min-width: 800px) {
     .field { grid-template-columns: repeat(var(--cols, 4), 1fr); }
-    .cell { aspect-ratio: auto; height: min(24vh, 200px); font-size: clamp(44px, 12vh, 96px); }
+    .cell { aspect-ratio: auto; height: min(20vh, 180px); font-size: clamp(44px, 11vh, 90px); }
+    .task { gap: 16px; }
     .task .prompt { min-height: 110px; padding-block: 18px; }
   }
   .cell.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
@@ -229,10 +230,12 @@
   .trapline .w.hit, .trapline .w.need { animation: pop .5s ease-out; }
   .trapline .w.bad { color: var(--bad); text-decoration: line-through; animation: shake .35s; }
   .trapline .w.need { background: var(--ok-bg); outline: 3px dashed var(--ok); outline-offset: 2px; }
+  .why1 { margin: 0 auto; font-size: clamp(18px, 2.6vw, 24px); font-weight: 700; background: var(--surface-2); border-radius: 14px; padding: 6px 16px; text-wrap: balance; }
   .why { display: grid; gap: 6px; justify-items: center; text-align: center; }
   .why p { margin: 0; font-size: clamp(20px, 2.8vw, 26px); font-weight: 700; background: var(--surface); border-radius: 14px; padding: 8px 16px; box-shadow: var(--shadow); }
 
   .actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .feedback:empty { display: none; }
   .feedback { text-align: center; font-size: 26px; font-weight: 800; min-height: 36px; margin: 0; }
   .feedback.ok { color: var(--ok); }
   .feedback.bad { color: var(--bad); }

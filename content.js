@@ -92,6 +92,7 @@
       const cat = pick(CATS), a = pick(N[cat]), n = 2 + rnd(4), loc = pick(LOC[cat]);
       return {
         text: `${loc} ${cntD(a, n)}.`, say: `${loc} ${cnt(a, n)}.`, trap: [String(n)],
+        why: `Ровно ${cntD(a, n)} — не больше и не меньше`,
         ok: sc(rep(a.e, n)), bad: [sc(rep(a.e, n - 1)), sc(rep(a.e, n + 1))],
       };
     },
@@ -104,6 +105,7 @@
       const loc = pick(LOC[cat]);
       return {
         text: `${loc} ${cntD(A, x)} и ${cntD(B, y)}.`, say: `${loc} ${cnt(A, x)} и ${cnt(B, y)}.`, trap: [String(x), String(y)],
+        why: `У каждого своё число: ${cntD(A, x)} и ${cntD(B, y)}`,
         ok: s(x, y), bad: [s(y, x), s(x, y2)],
       };
     },
@@ -115,6 +117,7 @@
       const mixed = rep(B.e, k - 1); mixed.splice(1, 0, A.e);
       return {
         text, trap: v ? ['нет', 'только'] : ['нет'],
+        why: `«${v ? 'нет ' + A.f[2] : A.f[2] + ' нет'}» — ${A.f[2]} совсем нет, только ${B.pl}`,
         ok: sc(rep(B.e, k)), bad: [sc(rep(A.e, k)), sc(mixed)],
       };
     },
@@ -123,6 +126,7 @@
       const S = pick(SHAPES), [C1, C2] = pickDistinct(COLORS, 2);
       return {
         text: `Все ${S.pl} ${C1.pl}, кроме 1 ${C2.gm}.`, say: `Все ${S.pl} ${C1.pl}, кроме одного ${C2.gm}.`, trap: ['кроме', '1'],
+        why: `«кроме 1» — одна фигура другого цвета, остальные ${C1.pl}`,
         ok: sc(shuffle(rep(C1[S.id], 3).concat(C2[S.id]))),
         bad: [sc(rep(C1[S.id], 4)), sc(shuffle(rep(C2[S.id], 3).concat(C1[S.id])))],
       };
@@ -135,6 +139,7 @@
         return {
           text: rnd(2) ? `Слева ${A.f[0]}, справа ${B.f[0]}.` : `${cap(B.f[0])} справа, а ${A.f[0]} слева.`,
           trap: ['слева', 'справа'],
+          why: `Слева — ${A.f[0]}, справа — ${B.f[0]}`,
           ok: sc([A.e, B.e], true), bad: [sc([B.e, A.e], true), sc([A.e, C.e], true)],
         };
       }
@@ -143,6 +148,7 @@
         : `Слева ${A.f[0]}, посередине ${B.f[0]}, справа ${C.f[0]}.`;
       return {
         text, trap: ['слева', 'посередине', 'справа'],
+        why: `Слева — ${A.f[0]}, посередине — ${B.f[0]}, справа — ${C.f[0]}`,
         ok: sc([A.e, B.e, C.e], true), bad: [sc([C.e, B.e, A.e], true), sc([B.e, A.e, C.e], true)],
       };
     },
@@ -155,6 +161,7 @@
       const ok = word === 'больше' ? s(a, b) : s(b, a), rev = word === 'больше' ? s(b, a) : s(a, b);
       return {
         text: `${pick(LOC[cat])} ${A.f[2]} ${word}, чем ${B.f[2]}.`, trap: [word],
+        why: `«${word}» — ${A.f[2]} должно быть ${word}, чем ${B.f[2]}`,
         ok, bad: [rev, s(c, c)],
       };
     },
@@ -163,6 +170,7 @@
       const cat = pick(CATS), [A, B] = pickDistinct(N[cat], 2), n = 2 + rnd(3), loc = pick(LOC[cat]);
       return {
         text: `${loc} ${cntD(A, n)}, а ${B.f[2]} нет.`, say: `${loc} ${cnt(A, n)}, а ${B.f[2]} нет.`, trap: [String(n), 'нет'],
+        why: `Ровно ${cntD(A, n)}, а ${B.f[2]} нет совсем`,
         ok: sc(rep(A.e, n)), bad: [sc(rep(A.e, n).concat(B.e)), sc(rep(A.e, n + 1))],
       };
     },
@@ -206,67 +214,67 @@
 
   // pred — что нажать; near — «почти подходящие» (должны быть в поле, чтобы ловушка работала); exact — ровно столько.
   const ROBOT = {
-    R1() { const c = pick(COLORS); return { field: 'shape', text: `Нажми на все ${c.pl} фигуры.`, trap: [c.pl], pred: i => i.color === c.id }; },
-    R2() { const s = pick(SHAPES); return { field: 'shape', text: `Нажми на все ${s.pl}.`, trap: [s.pl], pred: i => i.shape === s.id }; },
+    R1() { const c = pick(COLORS); return { field: 'shape', text: `Нажми на все ${c.pl} фигуры.`, trap: [c.pl], why: `Важен только цвет: все ${c.pl}, любой формы`, pred: i => i.color === c.id }; },
+    R2() { const s = pick(SHAPES); return { field: 'shape', text: `Нажми на все ${s.pl}.`, trap: [s.pl], why: `Важна только форма: все ${s.pl}, любого цвета`, pred: i => i.shape === s.id }; },
     R3() {
       const s = pick(SHAPES), c = pick(COLORS);
-      return { field: 'shape', text: `Нажми на все ${s.pl}, кроме ${c.gpl}.`, trap: ['кроме'],
+      return { field: 'shape', text: `Нажми на все ${s.pl}, кроме ${c.gpl}.`, trap: ['кроме'], why: `«кроме ${c.gpl}» — ${c.pl} ${s.pl} не нажимаем`,
         pred: i => i.shape === s.id && i.color !== c.id, near: i => i.shape === s.id && i.color === c.id };
     },
     R4() {
       const c = pick(COLORS);
-      return { field: 'shape', text: `Нажми на все фигуры, которые не ${c.pl}.`, trap: ['не'],
+      return { field: 'shape', text: `Нажми на все фигуры, которые не ${c.pl}.`, trap: ['не'], why: `«не ${c.pl}» — ${c.pl} не нажимаем, остальные все`,
         pred: i => i.color !== c.id, near: i => i.color === c.id };
     },
     R5() {
       const s = pick(SHAPES), c = pick(COLORS);
-      return { field: 'shape', text: `Нажми только на ${c.pl} ${s.pl}.`, trap: ['только'],
+      return { field: 'shape', text: `Нажми только на ${c.pl} ${s.pl}.`, trap: ['только'], why: `«только» — ${c.pl} и при этом ${s.pl}, больше ничего`,
         pred: i => i.shape === s.id && i.color === c.id, near: i => (i.shape === s.id) !== (i.color === c.id) };
     },
     R6() {
       const s = pick(SHAPES), c = pick(COLORS), n = pick([2, 3]);
       return { field: 'shape', text: `Нажми на ${n} ${c.gpl} ${s.gs}.`, say: `Нажми на ${numWord(n, 'm')} ${c.gpl} ${s.gs}.`, trap: [String(n)],
-        pred: i => i.shape === s.id && i.color === c.id, exact: n };
+        why: `Ровно ${n} — не больше и не меньше`, pred: i => i.shape === s.id && i.color === c.id, exact: n };
     },
     R7() {
       const s = pick(SHAPES), c = pick(COLORS);
-      return { field: 'shape', text: `Не нажимай на ${s.pl}. Нажми на все ${c.pl} фигуры.`, trap: ['не'],
+      return { field: 'shape', text: `Не нажимай на ${s.pl}. Нажми на все ${c.pl} фигуры.`, trap: ['не'], why: `${cap(s.pl)} не нажимаем, даже если они ${c.pl}`,
         pred: i => i.color === c.id && i.shape !== s.id, near: i => i.color === c.id && i.shape === s.id };
     },
-    A1() { return { field: 'animal', text: 'Нажми на всех, кто умеет летать.', trap: ['летать'], pred: i => !!i.fly }; },
-    A2() { return { field: 'animal', text: 'Нажми на всех, кто живёт в воде.', trap: ['воде'], pred: i => !!i.water }; },
+    A1() { return { field: 'animal', text: 'Нажми на всех, кто умеет летать.', trap: ['летать'], why: 'Только те, кто умеет летать', pred: i => !!i.fly }; },
+    A2() { return { field: 'animal', text: 'Нажми на всех, кто живёт в воде.', trap: ['воде'], why: 'Только те, кто живёт в воде', pred: i => !!i.water }; },
     A3() {
-      return { field: 'animal', text: 'Нажми на всех, кроме тех, кто умеет летать.', trap: ['кроме'],
+      return { field: 'animal', text: 'Нажми на всех, кроме тех, кто умеет летать.', trap: ['кроме'], why: '«кроме» — тех, кто летает, не нажимаем',
         pred: i => !i.fly, near: i => !!i.fly };
     },
     A4() {
-      return { field: 'animal', text: 'Нажми на всех, кто не живёт в воде.', trap: ['не'],
+      return { field: 'animal', text: 'Нажми на всех, кто не живёт в воде.', trap: ['не'], why: '«не живёт в воде» — водных не нажимаем, остальных всех',
         pred: i => !i.water, near: i => !!i.water };
     },
     A5() {
-      return { field: 'animal', text: 'Нажми на всех, кто не умеет летать и не живёт в воде.', trap: ['не'],
+      return { field: 'animal', text: 'Нажми на всех, кто не умеет летать и не живёт в воде.', trap: ['не'], why: 'Не летает и не живёт в воде — только те, кто ходит по земле',
         pred: i => !i.fly && !i.water, near: i => !!i.fly || !!i.water };
     },
-    A6() { return { field: 'animal', text: 'Нажми только на 1 животное, которое живёт в воде.', say: 'Нажми только на одно животное, которое живёт в воде.', trap: ['1'], pred: i => !!i.water, exact: 1 }; },
-    P1() { return { field: 'food', text: 'Нажми на все фрукты.', trap: ['фрукты'], pred: i => !!i.fruit }; },
-    P2() { return { field: 'food', text: 'Нажми на все овощи.', trap: ['овощи'], pred: i => !i.fruit }; },
+    A6() { return { field: 'animal', text: 'Нажми только на 1 животное, которое живёт в воде.', say: 'Нажми только на одно животное, которое живёт в воде.', trap: ['1'], why: 'Ровно 1 — одно животное, которое живёт в воде', pred: i => !!i.water, exact: 1 }; },
+    P1() { return { field: 'food', text: 'Нажми на все фрукты.', trap: ['фрукты'], why: 'Только фрукты, овощи не нажимаем', pred: i => !!i.fruit }; },
+    P2() { return { field: 'food', text: 'Нажми на все овощи.', trap: ['овощи'], why: 'Только овощи, фрукты не нажимаем', pred: i => !i.fruit }; },
     P3() {
       const x = pick(FOOD.filter(f => !f.fruit));
-      return { field: 'food', text: `Нажми на все овощи, кроме ${x.gen}.`, trap: ['кроме'],
+      return { field: 'food', text: `Нажми на все овощи, кроме ${x.gen}.`, trap: ['кроме'], why: `«кроме ${x.gen}» — остальные овощи нажимаем, а это нет`,
         pred: i => !i.fruit && i.e !== x.e, near: i => i.e === x.e };
     },
     P4() {
       const c = pick(Object.keys(FOOD_COLORS));
-      return { field: 'food', text: `Нажми на все фрукты, которые не ${FOOD_COLORS[c]}.`, trap: ['не'],
+      return { field: 'food', text: `Нажми на все фрукты, которые не ${FOOD_COLORS[c]}.`, trap: ['не'], why: `«не ${FOOD_COLORS[c]}» — ${FOOD_COLORS[c]} фрукты не нажимаем`,
         pred: i => !!i.fruit && i.color !== c, near: i => !!i.fruit && i.color === c };
     },
     P5() {
       const c = pick(['green', 'orange']);
-      return { field: 'food', text: `Нажми только на ${FOOD_COLORS[c]} овощи.`, trap: ['только'],
+      return { field: 'food', text: `Нажми только на ${FOOD_COLORS[c]} овощи.`, trap: ['только'], why: `«только» — ${FOOD_COLORS[c]} и при этом овощи`,
         pred: i => !i.fruit && i.color === c, near: i => i.color === c && !!i.fruit };
     },
     P6() {
-      return { field: 'food', text: 'Нажми на 2 фрукта, которые не жёлтые.', say: 'Нажми на два фрукта, которые не жёлтые.', trap: ['2', 'не'],
+      return { field: 'food', text: 'Нажми на 2 фрукта, которые не жёлтые.', say: 'Нажми на два фрукта, которые не жёлтые.', trap: ['2', 'не'], why: 'Ровно 2 фрукта, и не жёлтые',
         pred: i => !!i.fruit && i.color !== 'yellow', exact: 2 };
     },
   };
@@ -387,7 +395,7 @@
   }
 
   const api = { flash, robot, robotCheck, sceneKey, FLASH, ROBOT, FLASH_BY_LEVEL, ROBOT_BY_LEVEL, FIELD_SIZE, makeField,
-    trap, TRAP_GEN, TRAP_SET, trapWhy, isWord };
+    trap, TRAP_GEN, TRAP_SET, trapWhy, isWord, tokens };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CONTENT = api;
 })(this);
