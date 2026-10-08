@@ -394,8 +394,23 @@
     return { tpl: 'T' + level + '.' + (g + 1), level, text, parts, need, trap: need.map(i => parts[i].toLowerCase()) };
   }
 
+  // ---------- Картинки ----------
+  // В заданиях и логах предметы — эмодзи; на экране вместо них объёмные картинки (Microsoft Fluent Emoji 3D, MIT, img/).
+  // Животные — целиком, а не мордочки, где такие есть.
+  const IMG = {
+    '🍎': 'red_apple', '🍐': 'pear', '🍌': 'banana', '🍊': 'tangerine', '🍋': 'lemon', '🍓': 'strawberry',
+    '🥕': 'carrot', '🥒': 'cucumber', '🥔': 'potato', '🥦': 'broccoli', '🍆': 'eggplant', '🐱': 'cat',
+    '🐶': 'dog', '🐰': 'rabbit', '🦊': 'fox', '🐸': 'frog', '🐢': 'turtle', '🦔': 'hedgehog',
+    '🐿️': 'chipmunk', '🐻': 'bear', '🐭': 'mouse', '🐦': 'bird', '🦋': 'butterfly', '🐝': 'honeybee',
+    '🦉': 'owl', '🐟': 'fish', '🐙': 'octopus', '🐬': 'dolphin', '🐳': 'whale', '🎈': 'balloon',
+    '⚽': 'soccer_ball', '🚗': 'automobile', '🧸': 'teddy_bear', '🎁': 'wrapped_gift', '📘': 'blue_book', '🔴': 'red_circle',
+    '🔵': 'blue_circle', '🟢': 'green_circle', '🟡': 'yellow_circle', '🟥': 'red_square', '🟦': 'blue_square', '🟩': 'green_square',
+    '🟨': 'yellow_square', '❤️': 'red_heart', '💙': 'blue_heart', '💚': 'green_heart', '💛': 'yellow_heart',
+  };
+  const imgFile = e => (IMG[e] ? `img/${IMG[e]}.png` : '');
+
   const api = { flash, robot, robotCheck, sceneKey, FLASH, ROBOT, FLASH_BY_LEVEL, ROBOT_BY_LEVEL, FIELD_SIZE, makeField,
-    trap, TRAP_GEN, TRAP_SET, trapWhy, isWord, tokens };
+    trap, TRAP_GEN, TRAP_SET, trapWhy, isWord, tokens, IMG, imgFile };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CONTENT = api;
 })(this);

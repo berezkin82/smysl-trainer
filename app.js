@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 20:25'; // проставляет .claude/deploy.sh
+  const BUILD = '08.10 20:30'; // проставляет .claude/deploy.sh
   const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
@@ -77,7 +77,11 @@
     return text.split(/([А-Яа-яЁё0-9]+)/).map(p => (set.has(p.toLowerCase()) ? `<mark>${esc(p)}</mark>` : esc(p))).join('');
   }
   const sentence = (text, trap) => `<p class="sentence">${trap ? markTrap(text, trap) : esc(text)}</p>`;
-  const sceneHTML = s => s.items.map(e => `<span>${e}</span>`).join('');
+  // Картинка предмета; если файла нет — сам эмодзи.
+  const pic = e => { const f = C.imgFile(e); return f ? `<img class="pic" src="${f}" alt="" draggable="false">` : `<span>${e}</span>`; };
+  const sceneHTML = s => s.items.map(pic).join('');
+  // Картинки заранее в память: во «Вспышке» варианты появляются сразу после фразы, ждать загрузки нельзя.
+  Object.keys(C.IMG).forEach(e => { new Image().src = C.imgFile(e); });
 
   // ---------- Сессия ----------
   const ABORT = new Error('abort');
@@ -363,7 +367,7 @@
     app.innerHTML = `${barHTML()}
       <section class="task">
         <div class="prompt" id="prompt"></div>
-        <div class="field" id="field" style="--cols:${Math.ceil(task.items.length / 2)}" hidden>${task.items.map((it, i) => `<button class="cell" data-i="${i}" aria-pressed="false">${it.e}</button>`).join('')}</div>
+        <div class="field" id="field" style="--cols:${Math.ceil(task.items.length / 2)}" hidden>${task.items.map((it, i) => `<button class="cell" data-i="${i}" aria-pressed="false">${pic(it.e)}</button>`).join('')}</div>
         <p class="feedback" id="fb"></p>
         <div class="actions">
           <button class="btn small" id="again" hidden>${mode === 'audio' ? '🔊 Послушать ещё' : '👀 Подсмотреть'}</button>
