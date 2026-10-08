@@ -16,12 +16,14 @@
     stars: 0,
     days: [],             // дни с законченной тренировкой
     extraDay: '',         // день, на который родитель разрешил ещё одну тренировку
+    // Копилка: раз в день после тренировки — rate ₽ × доля ответов с первого раза. Цель и ставку задаёт взрослый.
+    bank: { total: 0, log: [], goal: '', price: 0, rate: 50 },
     lastSync: '', syncError: '',
     copy: '',             // номер этой копии хранилища — виден в логах и журнале
     progAt: '',           // когда последний раз менялся прогресс (для сверки с state.json)
   };
   // Что считается прогрессом ребёнка и синхронизируется между копиями.
-  const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay'];
+  const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay', 'bank'];
 
   function load(storage) {
     let saved = {};
@@ -30,12 +32,14 @@
     s.settings = Object.assign({}, DEFAULTS.settings, saved.settings);
     s.levels = Object.assign({}, DEFAULTS.levels, saved.levels);
     s.hist = Object.assign({ flash: [], robot: [], trap: [] }, saved.hist);
+    s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, saved.bank);
     return s;
   }
   // В state.json от старой версии нет новых игр — их уровни берём по умолчанию.
   function fillGames(s) {
     s.levels = Object.assign({}, DEFAULTS.levels, s.levels);
     s.hist = Object.assign({ flash: [], robot: [], trap: [] }, s.hist);
+    s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, s.bank);
   }
 
   function create(storage, fetchFn) {
@@ -175,7 +179,16 @@
     }
 
     // ---------- Прогресс в репо (state.json) ----------
-    const snapshot = () => ({ levels: Object.assign({}, S.levels), expo: +(+S.expo).toFixed(2), stars: S.stars, days: S.days.length });
+    const snapshot = () => ({ levels: Object.assign({}, S.levels), expo: +(+S.expo).toFixed(2), stars: S.stars, days: S.days.length, bank: S.bank.total });
+    // Копилка: раз в день ставка × доля ответов с первого раза. Повторная тренировка в тот же день не начисляет.
+    function bankAdd(first, n, today) {
+      const b = S.bank;
+      if (b.log.some(x => x.day === today)) return null;
+      const pct = n ? Math.round(first / n * 100) : 0, add = Math.round(b.rate * pct / 100);
+      b.total += add;
+      b.log.push({ day: today, pct, add }); if (b.log.length > 90) b.log.shift();
+      return { pct, add, total: b.total };
+    }
     function touchProgress() { S.progAt = new Date().toISOString(); }
     async function getState() {
       const r = await fetchFn(`${repoUrl()}/contents/state.json`, { headers: headers(), cache: 'no-store' });
@@ -219,7 +232,7 @@
 
     return {
       S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
-      isNewCopy, snapshot, touchProgress, pullProgress, pushProgress,
+      isNewCopy, snapshot, touchProgress, bankAdd, pullProgress, pushProgress,
     };
   }
 
