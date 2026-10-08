@@ -6,6 +6,9 @@
   'use strict';
 
   const KEY = 'smysl.v1';
+  // Песочница (?sandbox=1) — для проверок взрослым: своё хранилище, в GitHub ничего не пишется и прогресс оттуда
+  // не берётся; имена и фото только читаются. Стартует с копии настроек и прогресса основного хранилища.
+  const SANDBOX_KEY = 'smysl.sandbox';
   const MAX_RECORDS = 5000;
   const DEFAULTS = {
     settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },
@@ -27,9 +30,9 @@
   // Что считается прогрессом ребёнка и синхронизируется между копиями.
   const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay', 'bank'];
 
-  function load(storage) {
+  function load(storage, key = KEY) {
     let saved = {};
-    try { saved = JSON.parse(storage.getItem(KEY)) || {}; } catch (e) { /* пусто */ }
+    try { saved = JSON.parse(storage.getItem(key)) || {}; } catch (e) { /* пусто */ }
     const s = Object.assign({}, DEFAULTS, saved);
     s.settings = Object.assign({}, DEFAULTS.settings, saved.settings);
     s.levels = Object.assign({}, DEFAULTS.levels, saved.levels);
@@ -44,14 +47,20 @@
     s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, s.bank);
   }
 
-  function create(storage, fetchFn) {
-    const S = load(storage);
+  function create(storage, fetchFn, opts = {}) {
+    const sandbox = !!opts.sandbox, key = sandbox ? SANDBOX_KEY : KEY;
+    if (sandbox && !storage.getItem(SANDBOX_KEY)) {
+      const main = load(storage), seed = { settings: main.settings };
+      for (const k of PROG) seed[k] = main[k];
+      try { storage.setItem(SANDBOX_KEY, JSON.stringify(seed)); } catch (e) { /* нет хранилища */ }
+    }
+    const S = load(storage, key);
     // Пустое хранилище без номера — новая копия (первый запуск, другой контейнер или данные стёрты).
     const isNewCopy = !S.copy;
     if (isNewCopy) S.copy = Math.random().toString(36).slice(2, 6);
     const save = () => {
       if (S.records.length > MAX_RECORDS) S.records = S.records.slice(-MAX_RECORDS);
-      try { storage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* хранилище недоступно */ }
+      try { storage.setItem(key, JSON.stringify(S)); } catch (e) { /* хранилище недоступно */ }
     };
 
     const pad = n => String(n).padStart(2, '0');
@@ -109,6 +118,7 @@
     function sync() {
       if (syncing) return syncing;
       syncing = (async () => {
+        if (sandbox) return { ok: true, sent: 0, text: 'песочница: логи не отправляются' };
         const pending = S.records.filter(r => !r.synced);
         if (!pending.length) return { ok: true, sent: 0 };
         if (!S.settings.repo || !S.settings.token) return { ok: false, sent: 0, text: 'GitHub не настроен' };
@@ -225,6 +235,7 @@
     }
     // Взять прогресс из репо, если он свежее здешнего. Возвращает, что было и что стало.
     async function pullProgress() {
+      if (sandbox) return { ok: false, text: 'песочница' };
       if (!S.settings.repo || !S.settings.token) return { ok: false, text: 'GitHub не настроен' };
       try {
         const { data } = await getState();
@@ -238,6 +249,7 @@
     }
     // Отправить свой прогресс, если в репо не лежит более свежий (тот не затираем).
     async function pushProgress() {
+      if (sandbox) return { ok: false, text: 'песочница' };
       if (!S.settings.repo || !S.settings.token || !S.progAt) return { ok: false, text: 'нечего отправлять' };
       try {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -258,7 +270,7 @@
 
     return {
       S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
-      isNewCopy, snapshot, touchProgress, bankAdd, bankBonus, refreshFamily, pullProgress, pushProgress,
+      sandbox, isNewCopy, snapshot, touchProgress, bankAdd, bankBonus, refreshFamily, pullProgress, pushProgress,
     };
   }
 
@@ -269,7 +281,7 @@
     try { ls = root.localStorage; ls.getItem(KEY); } catch (e) {
       const m = {}; ls = { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } };
     }
-    root.STORE = create(ls, root.fetch.bind(root));
+    root.STORE = create(ls, root.fetch.bind(root), { sandbox: /[?&]sandbox=1/.test(root.location.search) });
     // Просим «постоянное» хранилище: иначе система может вычистить настройки и токен при нехватке места.
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* нет API */ }
   }

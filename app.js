@@ -11,8 +11,10 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 21:15'; // проставляет .claude/deploy.sh
-  const SESSION_MS = 15 * 60e3, BLOCK_MS = 2.5 * 60e3;
+  const BUILD = '08.10 21:46'; // проставляет .claude/deploy.sh
+  // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
+  const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
+  const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3, BLOCK_MS = SESSION_MS / 6;
   const EXPO_MIN = 0.55; // нижний предел множителя времени показа: ~80 слов/мин
   // Порядок блоков: игра и режим (в смешанном режиме глаза и слух чередуются). «Ловушка» — разминка: сначала найти
   // слова, которые меняют смысл, потом ловить смысл целиком. Она всегда глазами.
@@ -111,7 +113,7 @@
   function barHTML() {
     return `<div class="bar">
       <button class="exit" id="exit">✕ Выйти</button>
-      ${sess.test ? '<span class="testbadge">ТЕСТ</span>' : ''}
+      ${sess.test ? '<span class="testbadge">ТЕСТ</span>' : SANDBOX ? '<span class="testbadge">ПЕСОЧНИЦА</span>' : ''}
       <div class="progress" aria-label="Сколько тренировки пройдено"><i style="width:${clamp(sess.elapsed / sess.len * 100, 0, 100)}%"></i></div>
       <div class="stars"><b>★</b> <span id="sstars">${sess.stars}</span></div>
     </div>`;
@@ -180,7 +182,8 @@
     sess = null; TTS.stop();
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
     if (!my || my.demo) { renderHome(); return; }
-    if (!aborted && my.test) renderDone(my);
+    // В тесте копилка не меняется, но показываем, сколько было бы начислено и почему.
+    if (!aborted && my.test) { const max = S.bank.rate, add = Math.round(max * my.first / Math.max(my.n, 1)); renderDone(my, { first: my.first, n: my.n, max, add }); }
     else if (!aborted) {
       const today = st.day();
       if (!S.days.includes(today)) S.days.push(today);
@@ -195,6 +198,8 @@
 
   // Копилка: раз в день, за первую законченную тренировку — ставка × доля ответов с первого раза.
   function bankAdd(my, today) {
+    // В песочнице каждая тренировка начисляется заново: прежнее начисление за сегодня снимаем.
+    if (SANDBOX) { const b = S.bank, i = b.log.findIndex(x => x.day === today && !x.kind); if (i >= 0) { b.total -= b.log[i].add; b.log.splice(i, 1); } }
     const r = st.bankAdd(my.first, my.n, today);
     if (r) st.addEvent('bank', Object.assign({ ver: BUILD, sid: my.id }, r));
     return r;
@@ -610,8 +615,9 @@
     st.addRecord(rec);
     if (!done) return;
     my.stars++;
-    let rubAdd = 0;
-    if (!my.test) {
+    let rubAdd = my.test ? S.bank.secret : 0;
+    if (my.test) my.secretRub += rubAdd;
+    else {
       S.stars++;
       const r = st.bankBonus(st.day());
       if (r) { rubAdd = r.add; my.secretRub += r.add; st.addEvent('bank-secret', Object.assign({ ver: BUILD, sid: my.id }, r)); }
@@ -680,7 +686,7 @@
     };
   }
 
-  function doneToday() { const today = st.day(); return S.days.includes(today) && S.extraDay !== today; }
+  function doneToday() { const today = st.day(); return !SANDBOX && S.days.includes(today) && S.extraDay !== today; }
 
   // Прогресс между копиями: взять из репо, если там свежее; иначе отправить свой.
   async function cloudSync() {
@@ -711,10 +717,10 @@
         ${bankHTML()}
         ${doneToday()
           ? '<p class="note">Сегодняшняя тренировка уже пройдена. Приходи завтра!</p>'
-          : `<button class="btn primary" id="start">▶ Полетели! · ${SESSION_MS / 60e3} минут</button>`}
+          : `<button class="btn primary" id="start">▶ Полетели! · ${SESSION_MS / 60e3} ${plural(SESSION_MS / 60e3, 'минута', 'минуты', 'минут')}</button>`}
         ${!TTS.ok && S.settings.mode !== 'read' ? '<p class="note">Голос не найден: пока играем только глазами.</p>' : ''}
       </section>
-      <p class="build">версия ${esc(BUILD)}</p>`;
+      <p class="build">${SANDBOX ? '<span class="testbadge">ПЕСОЧНИЦА</span> в GitHub ничего не уходит · ' : ''}версия ${esc(BUILD)}</p>`;
     const b = $('#start'); if (b) b.onclick = () => runSession();
     bindFlyer(); showPhoto();
   }
@@ -726,7 +732,7 @@
         <h2>${my.test ? 'Тестовая тренировка закончена' : 'Тренировка закончена!'}</h2>
         <div class="bigstars"><span class="pop">★ ${my.stars}</span></div>
         <p class="note">С первого раза: ${my.first} из ${my.n}</p>
-        ${add || my.secretRub ? `<div class="bank-add pop">🐷 +${rub((add ? add.add : 0) + my.secretRub)} в копилку</div>
+        ${add || my.secretRub ? `<div class="bank-add pop">🐷 +${rub((add ? add.add : 0) + my.secretRub)} ${my.test ? '— было бы в копилку (в тесте не начисляется)' : 'в копилку'}</div>
           <div class="bank-why">${add ? `<span class="bank-day">За тренировку:</span> ${bankEq(add)}` : ''}
             ${my.secretRub ? `<span class="why-n">${add ? 'и ' : ''}за секреты +${rub(my.secretRub)}</span>` : ''}</div>` : ''}
         ${s ? `<span class="chip">🔥 ${s} ${plural(s, 'день', 'дня', 'дней')} подряд</span>` : ''}
@@ -738,7 +744,8 @@
 
   function updateSyncLine(res) {
     const el = $('#syncline'); if (!el) return;
-    if (res.ok) el.textContent = 'Результаты сохранены ✓';
+    if (SANDBOX) el.textContent = 'Песочница: в GitHub ничего не отправлено';
+    else if (res.ok) el.textContent = 'Результаты сохранены ✓';
     else el.textContent = 'Результаты сохранены на этом устройстве, отправлю позже';
   }
 
