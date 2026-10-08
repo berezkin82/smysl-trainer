@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '08.10 23:37'; // проставляет .claude/deploy.sh
+  const BUILD = '09.10 00:09'; // проставляет .claude/deploy.sh
   // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
   const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
   const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3, BLOCK_MS = SESSION_MS / 6;
@@ -22,7 +22,9 @@
   const GAMES = {
     trap: {
       title: 'Ловушка', icon: '🪤',
-      read: 'В каждой фразе есть слово-ловушка, от которого меняется смысл: «не», «кроме», «только». Иногда их два. Найди и нажми.',
+      read: 'Здесь нет картинок, только фраза. В ней прячется слово-ловушка, от которого меняется смысл: «не», «кроме», «только». Найди это слово и нажми на него. Иногда ловушек две.',
+      // Пример на экране вступления: ищем слово, а не предмет.
+      example: '<p class="sentence trapline ex">Возьми все карандаши, <span class="nw"><span class="w hit">кроме</span></span> синего.</p><p class="target">👆 Нажимай на <b>слова</b> во фразе</p>',
     },
     flash: {
       title: 'Вспышка', icon: '⚡',
@@ -113,6 +115,8 @@
     }
     return html;
   }
+  // Метка «куда нажимать»: слова, картинки или буквы — чтобы не тыкать во всё подряд.
+  const target = (what, rest = '') => `<p class="target">👆 Нажимай на <b>${what}</b>${rest ? ' ' + rest : ''}</p>`;
   const sentence = (text, trap) => `<p class="sentence">${trap ? markTrap(text, trap) : esc(text)}</p>`;
   // Картинка предмета; если файла нет — сам эмодзи.
   const pic = e => { const f = C.imgFile(e); return f ? `<img class="pic" src="${f}" alt="" draggable="false">` : `<span>${e}</span>`; };
@@ -282,6 +286,7 @@
         <h2>${g.title}</h2>
         <span class="mode ${mode}">${mode === 'audio' ? '🔊 Слушаем' : '👀 Читаем'}</span>
         <p>${esc(g[mode])}</p>
+        ${g.example ? `<div class="example">${g.example}</div>` : ''}
         <button class="btn primary" id="go">${idx === 0 ? 'Начать' : 'Дальше'}</button>
       </section>`;
     bindExit();
@@ -357,7 +362,8 @@
     answers.addEventListener('pointerdown', nudge);
     // Засчитываем любое смысловое слово: ошибка бывает и в числе, и в цвете, и в «не» — не угадываем, в каком.
     const need = parts.map((p, i) => (C.isWord(p) && C.keyWord(p, task.trap) ? i : -1)).filter(i => i >= 0);
-    prompt.innerHTML = `<p class="ask">Ой, ошибка! Прочитай ещё раз и нажми на самое важное слово</p>
+    prompt.innerHTML = `<p class="ask">Ой, ошибка! Найди во фразе самое важное слово</p>
+      ${target('слово', 'во фразе, а не на картинки')}
       <p class="sentence trapline" id="fline">${wordButtons(parts)}</p>
       <p class="hint" id="fhint">👆 Например, число, цвет или «не»</p>`;
     const line = $('#fline'), taps = [];
@@ -418,7 +424,7 @@
         await TTS.speak(task.say || task.text);
       }
       alive(my);
-      prompt.innerHTML = '<p class="ask">Какая картинка подходит?</p>';
+      prompt.innerHTML = '<p class="ask">Какая картинка подходит?</p>' + target('картинку');
       opts.hidden = false; again.disabled = false; busy = false;
     };
 
@@ -473,7 +479,7 @@
     const sel = new Set();
     let replays = 0, attempts = 0, correct = false, rt = null, busy = false, find = null;
     const picks = [];
-    const ASK = '<p class="ask">Выполни команду</p>';
+    const ASK = '<p class="ask">Выполни команду</p>' + target('картинки', 'и потом «Готово»');
 
     // Первый показ: фраза видна, пока не нажмут «Понятно!»; на слух — звучит один раз.
     if (mode === 'read') {
@@ -545,7 +551,8 @@
           <p class="ask">${n > 1 ? `Здесь ${n} ${plural(n, 'слово', 'слова', 'слов')}-ловушки — найди все` : 'Найди слово-ловушку'}</p>
           ${n > 1 ? `<div class="count" id="cnt">${'<i></i>'.repeat(n)}</div>` : ''}
           <p class="sentence trapline" id="line">${wordButtons(task.parts)}</p>
-          <p class="hint" id="hint">Слово, от которого меняется смысл</p>
+          ${target('слова', 'во фразе')}
+          <p class="hint" id="hint">Ищи слово, от которого меняется смысл</p>
         </div>
         <p class="feedback" id="fb"></p>
         <div class="why" id="why" hidden></div>
@@ -596,16 +603,19 @@
   // Нужно найти эти буквы. Имена — из приватного репо (store.refreshFamily). Время тренировки не идёт.
   const norm = ch => ch.toLowerCase().replace('ё', 'е');
   const fitsSeq = (text, name) => { let k = 0; for (const ch of text) if (k < name.length && norm(ch) === norm(name[k])) k++; return k === name.length; };
-  const SECRET_MAX = 3, SECRET_GAP = 8, SECRET_P = 0.12;
+  // Секретов меньше (родитель 08.10: «очень много, уменьшим на 30%»): до 2 за тренировку, шанс 8%, не чаще раза в 12 заданий.
+  const SECRET_MAX = 2, SECRET_GAP = 12, SECRET_P = 0.08;
   const FORCE_SECRET = new URLSearchParams(location.search).has('secret'); // для проверок: секрет после каждого верного ответа
 
   // Перед заданием решаем, будет ли после него секрет, и чьё имя прячем: сначала новые для этой тренировки.
+  // Одно имя два раза подряд не прячем — и внутри тренировки, и на стыке тренировок (S.lastSecret).
+  const notLast = f => S.family.length < 2 || f.name !== S.lastSecret;
   function planSecret(my) {
     my.secretFor = null;
     if (my.demo || !S.family.length) return;
     if (!FORCE_SECRET && (my.secrets >= SECRET_MAX || my.n - my.lastSecretN < SECRET_GAP || Math.random() > SECRET_P)) return;
-    const fresh = S.family.filter(f => !(my.shownNames || []).includes(f.name));
-    my.secretFor = pick(fresh.length ? fresh : S.family);
+    const ok = S.family.filter(notLast), fresh = ok.filter(f => !(my.shownNames || []).includes(f.name));
+    my.secretFor = pick(fresh.length ? fresh : ok);
   }
   // Подбор задания: без повторов фразы за тренировку и, по возможности, без недавних (S.recent — последние 150
   // по всем дням). Если задумано задание с секретом — ещё и так, чтобы имя уложилось в буквы фразы.
@@ -624,7 +634,7 @@
     let t = null;
     if (my.secretFor) {
       t = choose(120, x => fitsSeq(x.text, my.secretFor.name));
-      if (!t) { t = choose(80, x => S.family.some(f => fitsSeq(x.text, f.name))); if (t) my.secretFor = S.family.find(f => fitsSeq(t.text, f.name)); }
+      if (!t) { const ok = S.family.filter(notLast); t = choose(80, x => ok.some(f => fitsSeq(x.text, f.name))); if (t) my.secretFor = ok.find(f => fitsSeq(t.text, f.name)); }
       if (!t) my.secretFor = null;
     }
     t = t || choose(150, () => true) || make();
@@ -633,11 +643,18 @@
     return t;
   }
 
+  // Секрет сложнее (родитель 08.10): имя не показываем — только чьё оно и сколько букв. Догадаться, чьё имя,
+  // и найти буквы по порядку. Подсказку «ищем букву В» не даём; после 3 промахов подряд открываем следующую букву сами.
+  const WHOSE = { 'это ты': 'твоё имя', папа: 'имя папы', мама: 'имя мамы', сестра: 'имя сестры', брат: 'имя брата',
+    бабушка: 'имя бабушки', дедушка: 'имя дедушки' };
+  const SECRET_HELP_AFTER = 3;
+
   async function maybeSecret(my, text) {
     const f = my.secretFor; my.secretFor = null;
     if (!f || !fitsSeq(text, f.name)) return;
     const name = [...f.name];
     my.shownNames = (my.shownNames || []).concat(f.name);
+    S.lastSecret = f.name; st.save();
     my.secrets++; my.lastSecretN = my.n;
     const chars = [...text];
     // Слова не переносятся посередине: каждое слово — неразрывный блок из кнопок-букв.
@@ -646,21 +663,29 @@
       if (/^\s+$/.test(part)) { html += ' '; i += part.length; continue; }
       html += '<span class="wd">' + [...part].map(ch => { const k = i++; return /[А-Яа-яЁё]/.test(ch) ? `<button class="l" data-i="${k}">${esc(ch)}</button>` : esc(ch); }).join('') + '</span>';
     }
+    // Чьё имя — по подписи из family.json; если подписи нет или она незнакомая — показываем имя, как раньше.
+    const whose = WHOSE[(f.who || '').toLowerCase()];
+    const title = whose ? `🔎 Секрет! В этой фразе спряталось ${whose}` : '🔎 Секрет! В этой фразе спряталось имя';
     app.innerHTML = `${barHTML()}
       <section class="task secret">
         <div class="prompt">
-          <p class="ask">🔎 Секрет! В этой фразе спряталось имя</p>
-          <div class="slots">${name.map(ch => `<span>${esc(ch.toUpperCase())}</span>`).join('')}</div>
-          <p class="hint" id="shint">Найди эти буквы во фразе по порядку</p>
+          <p class="ask">${title}</p>
+          <div class="slots">${name.map(ch => `<span data-ch="${esc(ch.toUpperCase())}">${whose ? '' : esc(ch.toUpperCase())}</span>`).join('')}</div>
+          ${target('буквы', 'во фразе по порядку')}
+          <p class="hint" id="shint"></p>
         </div>
         <p class="sentence letters" id="sl">${html}</p>
         <p class="feedback" id="fb"></p>
         <div class="actions"><button class="btn small" id="skip">Пропустить</button><button class="btn primary" id="next" hidden>Дальше →</button></div>
       </section>`;
     bindExit();
-    TTS.speak('Секрет! В этой фразе спряталось имя ' + f.name);
+    TTS.speak(whose ? `Секрет! В этой фразе спряталось ${whose}. Догадайся, чьё, и найди буквы по порядку.` : 'Секрет! В этой фразе спряталось имя ' + f.name);
     const slots = [...app.querySelectorAll('.slots span')];
-    let k = 0, last = -1, miss = 0;
+    let k = 0, last = -1, miss = 0, row = 0, helps = 0;
+    // Найденная буква: ставим в клеточку и подсвечиваем во фразе.
+    const take = (b, at) => { b.classList.add('hit'); slots[k].textContent = slots[k].dataset.ch; slots[k].classList.add('on'); last = at; k++; row = 0; };
+    // Подсказка: самая ранняя подходящая буква после найденных.
+    const helpAt = () => chars.findIndex((ch, at) => at > last && norm(ch) === norm(name[k]) && fitsSeq(chars.slice(at + 1).join(''), name.slice(k + 1).join('')));
     const done = await new Promise(res => {
       $('#skip').onclick = () => res(false);
       $('#sl').onclick = e => {
@@ -668,17 +693,22 @@
         const at = +b.dataset.i;
         // Буква подходит, если она следующая в имени, стоит после найденных и после неё хватает букв на остаток имени.
         if (norm(chars[at]) === norm(name[k]) && at > last && fitsSeq(chars.slice(at + 1).join(''), name.slice(k + 1).join(''))) {
-          b.classList.add('hit'); slots[k].classList.add('on'); last = at; k++;
+          take(b, at); $('#shint').textContent = '';
           if (k === name.length) res(true);
         } else {
-          miss++; b.classList.remove('no'); void b.offsetWidth; b.classList.add('no');
-          $('#shint').textContent = norm(chars[at]) === norm(name[k]) ? 'Эта буква нужна раньше — ищи ближе к началу' : `Сейчас ищем букву «${name[k].toUpperCase()}»`;
+          miss++; row++; b.classList.remove('no'); void b.offsetWidth; b.classList.add('no');
+          if (row >= SECRET_HELP_AFTER) {
+            const h = helpAt(); helps++;
+            take(app.querySelector(`#sl .l[data-i="${h}"]`), h);
+            $('#shint').textContent = 'Подсказка: одну букву открыли сами';
+            if (k === name.length) res(true);
+          } else $('#shint').textContent = 'Не та буква. Подумай, чьё это имя';
         }
       };
     });
     alive(my);
     $('#sl').onclick = null; $('#skip').hidden = true;
-    const rec = { id: `${my.id}-${++my.seq}`, sid: my.id, ver: BUILD, game: 'secret', name: f.name, done, miss };
+    const rec = { id: `${my.id}-${++my.seq}`, sid: my.id, ver: BUILD, game: 'secret', name: f.name, done, miss, helps, hidden: !!whose };
     if (my.test) rec.test = true;
     st.addRecord(rec);
     if (!done) return;
