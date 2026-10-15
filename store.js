@@ -10,11 +10,14 @@
   // не берётся; имена и фото только читаются. Стартует с копии настроек и прогресса основного хранилища.
   const SANDBOX_KEY = 'smysl.sandbox';
   const MAX_RECORDS = 5000;
+  // Все игры (у каждой свой уровень и история); «Робот» с 15.10 только в проверке взрослого.
+  const GAMES = ['flash', 'robot', 'trap', 'same', 'para', 'task'];
+  const emptyHist = () => Object.fromEntries(GAMES.map(g => [g, []]));
   const DEFAULTS = {
     settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },
     records: [],          // все ответы; r.synced — отправлен ли в GitHub
-    levels: { flash: 1, robot: 1, trap: 1 },
-    hist: { flash: [], robot: [], trap: [] },   // последние «с первого раза» для смены уровня
+    levels: Object.fromEntries(GAMES.map(g => [g, 1])),
+    hist: emptyHist(),    // последние «с первого раза» для смены уровня
     expo: 1,              // множитель времени показа во «Вспышке»
     stars: 0,
     days: [],             // дни с законченной тренировкой
@@ -38,14 +41,14 @@
     const s = Object.assign({}, DEFAULTS, saved);
     s.settings = Object.assign({}, DEFAULTS.settings, saved.settings);
     s.levels = Object.assign({}, DEFAULTS.levels, saved.levels);
-    s.hist = Object.assign({ flash: [], robot: [], trap: [] }, saved.hist);
+    s.hist = Object.assign(emptyHist(), saved.hist);
     s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, saved.bank);
     return s;
   }
   // В state.json от старой версии нет новых игр — их уровни берём по умолчанию.
   function fillGames(s) {
     s.levels = Object.assign({}, DEFAULTS.levels, s.levels);
-    s.hist = Object.assign({ flash: [], robot: [], trap: [] }, s.hist);
+    s.hist = Object.assign(emptyHist(), s.hist);
     s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, s.bank);
   }
 
@@ -273,11 +276,11 @@
 
     return {
       S, save, day, addRecord, addEvent, sync, checkRepo, pendingCount, cachedPhotos, refreshPhotos, b64enc, b64dec,
-      sandbox, isNewCopy, snapshot, touchProgress, bankAdd, bankBonus, refreshFamily, pullProgress, pushProgress,
+      sandbox, isNewCopy, snapshot, touchProgress, bankAdd, bankBonus, refreshFamily, pullProgress, pushProgress, GAMES,
     };
   }
 
-  const api = { create, KEY, PROG };
+  const api = { create, KEY, PROG, GAMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else {
     let ls;
