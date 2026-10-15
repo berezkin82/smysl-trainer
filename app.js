@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '15.10 19:57'; // проставляет .claude/deploy.sh
+  const BUILD = '15.10 20:24'; // проставляет .claude/deploy.sh
   // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
   const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
   const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3, BLOCK_MS = SESSION_MS / 6;
@@ -60,17 +60,29 @@
   // ---------- Голос ----------
   const TTS = {
     ok: false, voice: null, list: [],
+    // Качество — по voiceURI (com.apple.voice.enhanced.ru-RU.Milena…): у обычной и улучшенной Милены одно имя «Milena»,
+    // и в списке их было не различить (родитель 15.10 скачал улучшенную и не смог её выбрать).
+    quality: v => (/premium|высок/i.test(v.name + v.voiceURI) ? 0 : /enhanced|улучш/i.test(v.name + v.voiceURI) ? 1 : 2),
+    label(v) { return `${v.name} — ${['высокое качество', 'улучшенный', 'обычный'][this.quality(v)]}${v.localService === false ? ', через интернет' : ''}`; },
     init() {
       if (!('speechSynthesis' in window)) return;
       const choose = () => {
         // Сначала качественные голоса: компактные на iPad звучат сдавленно.
         // Сетевые голоса (в Chrome — «Google русский») иногда не начинают или обрываются через ~15 с — их в конец.
-        const rank = v => (v.localService === false ? 10 : 0) + (/premium|высок/i.test(v.name + v.voiceURI) ? 0 : /enhanced|улучш/i.test(v.name + v.voiceURI) ? 1 : 2);
+        const rank = v => (v.localService === false ? 10 : 0) + this.quality(v);
         this.list = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)).sort((a, b) => rank(a) - rank(b));
-        // Сохранённый сетевой голос не берём, если есть локальный.
+        // Сохранённый сетевой голос не берём, если есть локальный. Если тот же голос скачан в лучшем качестве — берём его.
         const saved = this.list.find(v => v.voiceURI === S.settings.voice);
-        this.voice = (saved && (saved.localService !== false || this.list[0].localService === false) ? saved : this.list[0]) || null;
+        const better = saved && this.list.find(v => v.name === saved.name && v.localService !== false && this.quality(v) < this.quality(saved));
+        const want = better || saved;
+        this.voice = (want && (want.localService !== false || this.list[0].localService === false) ? want : this.list[0]) || null;
         this.ok = !!this.voice;
+        // Какие голоса видит тренажёр — в журнал (раз на каждый новый набор): по логам видно, отдал ли iPad скачанный голос.
+        const sig = this.list.map(v => v.voiceURI).join('|');
+        if (sig && sig !== S.voicesSig) {
+          S.voicesSig = sig;
+          st.addEvent('voices', { ver: BUILD, list: this.list.map(v => this.label(v)), uris: this.list.map(v => v.voiceURI), chosen: this.voice ? this.voice.voiceURI : '' });
+        }
       };
       choose();
       speechSynthesis.onvoiceschanged = choose;
@@ -1149,11 +1161,13 @@
           </div>
           <div class="row">
             <label>Голос
-              <select id="f-voice">${TTS.list.length ? TTS.list.map(v => `<option value="${esc(v.voiceURI)}"${TTS.voice && v.voiceURI === TTS.voice.voiceURI ? ' selected' : ''}>${esc(v.name)}</option>`).join('') : '<option value="">Русский голос не найден</option>'}</select>
+              <select id="f-voice">${TTS.list.length ? TTS.list.map(v => `<option value="${esc(v.voiceURI)}"${TTS.voice && v.voiceURI === TTS.voice.voiceURI ? ' selected' : ''}>${esc(TTS.label(v))}</option>`).join('') : '<option value="">Русский голос не найден</option>'}</select>
             </label>
             <button class="btn small" id="f-say">🔊 Проверить голос</button>
           </div>
-          ${TTS.list.length ? '' : '<p class="muted">Скачайте русский голос: Настройки → Универсальный доступ → Устный контент → Голоса → Русский.</p>'}
+          <p class="muted">${TTS.list.length ? `Русских голосов на этом устройстве: ${TTS.list.length}. ` : ''}Скачать голос получше: Настройки → Универсальный доступ → Устный контент →
+            Голоса → Русский (лучше «улучшенный» или «высокое качество»). Потом закройте тренажёр совсем (смахнуть вверх в переключателе
+            приложений) и откройте снова; если голоса нет в списке — перезагрузите iPad. Голоса Siri приложениям недоступны.</p>
           <div class="row">
             <button class="btn small" id="f-extra"${S.days.includes(today) && S.extraDay !== today ? '' : ' disabled'}>Разрешить ещё одну тренировку сегодня</button>
           </div>
@@ -1295,6 +1309,7 @@
     'bank-secret': e => `Копилка: +${rub(e.add)} за секрет, всего ${rub(e.total)}`,
     'bank-reset': e => `Копилка обнулена (было ${rub(e.total)}, цель «${e.goal || '—'}»)`,
     'tts-fail': e => `Голос не зазвучал (${e.voice || 'голос по умолчанию'}), повтор без выбора голоса`,
+    voices: e => `Голоса на устройстве: ${(e.list || []).join('; ') || 'нет русских'}`,
     'key-link': e => (e.replaced ? 'Настройки GitHub заменены из ссылки-ключа' : 'Токен восстановлен из ссылки-ключа — вводить не пришлось'),
   };
   const evText = e => (EV_TEXT[e.ev] ? EV_TEXT[e.ev](e) : e.ev);
