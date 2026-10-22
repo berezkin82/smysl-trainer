@@ -11,7 +11,8 @@
   const SANDBOX_KEY = 'smysl.sandbox';
   const MAX_RECORDS = 5000;
   // Все игры (у каждой свой уровень и история); «Робот» с 15.10 и «Одно и то же?» с 22.10 — только в проверке взрослого.
-  const GAMES = ['flash', 'robot', 'trap', 'same', 'trick', 'para', 'task'];
+  // mean — «Что значит?», build — «Собери слово» (блок «Слова», с 22.10).
+  const GAMES = ['flash', 'robot', 'trap', 'same', 'trick', 'para', 'task', 'mean', 'build'];
   const emptyHist = () => Object.fromEntries(GAMES.map(g => [g, []]));
   const DEFAULTS = {
     settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },
@@ -23,17 +24,21 @@
     days: [],             // дни с законченной тренировкой
     extraDay: '',         // день, на который родитель разрешил ещё одну тренировку
     // Копилка: раз в день после тренировки — rate ₽ × доля ответов с первого раза; за найденный секрет — secret ₽.
-    // Цель и ставки задаёт взрослый. log: { day, add, pct, first, n, max } — тренировка; { day, add, kind: 'secret' } — секрет.
-    bank: { total: 0, log: [], goal: '', price: 0, rate: 50, secret: 2 },
+    // Цель и ставки задаёт взрослый. log: { day, add, pct, first, n, max } — тренировка; { day, add, kind: 'secret' } — секрет;
+    // { day, add, kind: 'ask' } — вопрос «Не знаю слово» (ask ₽, не больше askMax раз за день).
+    bank: { total: 0, log: [], goal: '', price: 0, rate: 50, secret: 2, ask: 1, askMax: 3 },
     lastSync: '', syncError: '',
     copy: '',             // номер этой копии хранилища — виден в логах и журнале
     lastSecret: '',       // чьё имя было в последнем секрете — следующее будет другим
     recent: [],           // последние фразы заданий — чтобы не повторялись изо дня в день
     family: [],           // имена для «секретов» — из приватного репо (family.json), в публичный код не попадают
+    // Слова на повторение: { слово: { s: сколько раз подряд верно (после 4-го — выучено), n: когда повторить (день или ''),
+    // d: день последнего ответа, dir: как спрашивали (A / B), ask: сколько раз спрашивала, miss: ошибок } }.
+    words: {},
     progAt: '',           // когда последний раз менялся прогресс (для сверки с state.json)
   };
   // Что считается прогрессом ребёнка и синхронизируется между копиями.
-  const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay', 'bank'];
+  const PROG = ['levels', 'hist', 'expo', 'stars', 'days', 'extraDay', 'bank', 'words'];
 
   function load(storage, key = KEY) {
     let saved = {};
@@ -43,6 +48,7 @@
     s.levels = Object.assign({}, DEFAULTS.levels, saved.levels);
     s.hist = Object.assign(emptyHist(), saved.hist);
     s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, saved.bank);
+    s.words = Object.assign({}, saved.words);
     return s;
   }
   // В state.json от старой версии нет новых игр — их уровни берём по умолчанию.
@@ -50,6 +56,7 @@
     s.levels = Object.assign({}, DEFAULTS.levels, s.levels);
     s.hist = Object.assign(emptyHist(), s.hist);
     s.bank = Object.assign({}, DEFAULTS.bank, { log: [] }, s.bank);
+    s.words = Object.assign({}, s.words);
   }
 
   function create(storage, fetchFn, opts = {}) {
@@ -224,11 +231,13 @@
       return { pct, add, first, n, max: b.rate, total: b.total };
     }
     // Бонус за найденный секрет.
-    function bankBonus(today) {
-      const b = S.bank, add = b.secret;
+    // Бонус сверх тренировки: kind 'secret' — найденный секрет, 'ask' — вопрос про слово (не больше askMax за день).
+    function bankBonus(today, kind = 'secret') {
+      const b = S.bank, add = kind === 'ask' ? b.ask : b.secret;
       if (!add) return null;
+      if (kind === 'ask' && b.log.filter(x => x.day === today && x.kind === 'ask').length >= b.askMax) return null;
       b.total += add;
-      b.log.push({ day: today, add, kind: 'secret' }); if (b.log.length > 200) b.log.shift();
+      b.log.push({ day: today, add, kind }); if (b.log.length > 200) b.log.shift();
       return { add, total: b.total };
     }
     function touchProgress() { S.progAt = new Date().toISOString(); }
