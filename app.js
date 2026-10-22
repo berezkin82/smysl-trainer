@@ -1,5 +1,5 @@
-// Тренажёр «Поймай смысл»: тренировка из блоков по 2,5 минуты, игры «Ловушка», «Вспышка», «Одно и то же?»,
-// «Абзац», «Задание» (и «Робот» — только в проверке взрослого), режимы «глазами» и «на слух», экран для взрослых.
+// Тренажёр «Поймай смысл»: тренировка из блоков по 3 минуты, игры «Ловушка», «Вспышка», «Хитрая фраза»,
+// «Абзац», «Задание» («Робот» и «Одно и то же?» — только в проверке взрослого), режимы «глазами» и «на слух», экран для взрослых.
 (function () {
   'use strict';
 
@@ -11,7 +11,7 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const pick = a => a[Math.floor(Math.random() * a.length)];
 
-  const BUILD = '15.10 20:46'; // проставляет .claude/deploy.sh
+  const BUILD = '22.10 11:41'; // проставляет .claude/deploy.sh
   // Песочница (?sandbox=1) — проверка взрослым без следа в GitHub (см. store.js); &min=N — длина тренировки.
   const SANDBOX = st.sandbox, QS = new URLSearchParams(location.search);
   const SESSION_MS = (SANDBOX && +QS.get('min') > 0 ? +QS.get('min') : 15) * 60e3;
@@ -21,7 +21,8 @@
   // С 15.10 «Робота» в тренировке нет (родитель: с ним она уже справляется, 92–95% с первого раза), вместо него —
   // «Одно и то же?», «Абзац», «Задание». 'weak' — режим, где во «Вспышке» больше ошибок (по логам — глазами).
   // «Абзац» (родитель 15.10: для неё сложновато) — не в каждой тренировке, а в каждой 4-й: «день рассказов».
-  const PLAN = [['trap', 'read'], ['flash', 'read'], ['same', 'audio'], ['task', 'read'], ['flash', 'weak']];
+  // С 22.10 вместо «Одно и то же?» — «Хитрая фраза»: там ответы были наугад (51%, ответ за ~1 с).
+  const PLAN = [['trap', 'read'], ['flash', 'read'], ['trick', 'read'], ['task', 'read'], ['flash', 'weak']];
   const PLAN_PARA = [['trap', 'read'], ['para', 'read'], ['flash', 'read'], ['para', 'audio'], ['task', 'read']];
   const PARA_EVERY = 4;
   // Сколько дней с тренировкой было до сегодня: день рассказов — 4-й, 8-й, 12-й… (повторная тренировка в тот же день — того же вида).
@@ -40,6 +41,13 @@
         : 'Сначала появится фраза — запомни её. Потом она спрячется и появится другая. Реши: смысл тот же или другой?'),
       audio: 'Послушай фразу и запомни. Потом прочитай другую. Реши: смысл тот же или другой?',
       example: '<p class="sentence ex">Слева кот, справа мяч.</p><p class="sentence ex">Мяч справа, а кот слева.</p><p class="target">👍 Смысл <b>тот же</b>: слова переставлены</p>',
+    },
+    trick: {
+      title: 'Хитрая фраза', icon: '🦊',
+      read: lv => 'Фразы тут хитрые: кто назван первым, не всегда первый на картинке. Прочитай, представь и выбери картинку, где всё именно так. Стрелка показывает, что было сначала, а что потом.'
+        + (lv > 1 ? ' Фраза спрячется — читай внимательно.' : ''),
+      audio: 'Послушай хитрую фразу, представь и выбери картинку, где всё именно так. Стрелка показывает, что было сначала, а что потом.',
+      example: '<p class="sentence ex">Груша справа, а яблоко слева.</p><p class="exscene"><img class="pic" src="img/red_apple.png" alt=""><img class="pic" src="img/pear.png" alt=""></p><p class="target">Груша названа первой, а на картинке она <b>справа</b></p>',
     },
     para: {
       title: 'Абзац', icon: '📖',
@@ -154,14 +162,17 @@
   // Метка «куда нажимать»: слова, картинки или буквы — чтобы не тыкать во всё подряд.
   const target = (what, rest = '') => `<p class="target">👆 Нажимай на <b>${what}</b>${rest ? ' ' + rest : ''}</p>`;
   const sentence = (text, trap) => `<p class="sentence">${trap ? markTrap(text, trap) : esc(text)}</p>`;
-  // Картинка предмета; если файла нет — сам эмодзи.
-  const pic = e => { const f = C.imgFile(e); return f ? `<img class="pic" src="${f}" alt="" draggable="false">` : `<span>${e}</span>`; };
+  // Картинка предмета; если файла нет — сам эмодзи. «🧸:b» / «🧸:s» — большой / маленький («Хитрая фраза»).
+  const pic = e => { const [b, z] = e.split(':'), f = C.imgFile(b); return f ? `<img class="pic${z ? ' sz-' + z : ''}" src="${f}" alt="" draggable="false">` : `<span>${b}</span>`; };
   // Одинаковые предметы подряд — одной группой: при переносе группа не рвётся, считать удобнее
   // (было: «3 мишки и мяч» на одной строке, ещё 3 мяча — на другой).
   const sceneHTML = s => {
+    // «/» — группы («белка с морковкой / черепаха»): каждая — своя плашка, иначе не видно, у кого морковка (стенд 22.10).
+    if (s.items.includes('/')) return s.items.join(' ').split(' / ').map(u => `<span class="unit">${u.split(' ').map(pic).join('')}</span>`).join('');
     const runs = [];
     s.items.forEach(e => { const r = runs[runs.length - 1]; if (r && r[0] === e && !s.ordered) r.push(e); else runs.push([e]); });
-    return runs.map(r => `<span class="grp">${r.map(pic).join('')}</span>`).join('');
+    // «→» — что было сначала, что потом.
+    return runs.map(r => (r[0] === '→' ? '<span class="arrow">→</span>' : `<span class="grp">${r.map(pic).join('')}</span>`)).join('');
   };
   // Картинки заранее в память: во «Вспышке» варианты появляются сразу после фразы, ждать загрузки нельзя.
   Object.keys(C.IMG).forEach(e => { new Image().src = C.imgFile(e); });
@@ -221,7 +232,7 @@
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
   }
 
-  // opts.test — тестовая тренировка взрослого: { game: 'all'|'trap'|'flash'|'same'|'para'|'task'|'robot', level, mode, minutes }.
+  // opts.test — тестовая тренировка взрослого: { game: 'all'|'trap'|'flash'|'trick'|'para'|'task'|'same'|'robot', level, mode, minutes }.
   // У неё свои уровни и время показа; прогресс ребёнка не меняется, ответы в логах помечены test.
   async function runSession(opts = {}) {
     TTS.unlock();
@@ -733,6 +744,79 @@
     return { first, text: task.text };
   }
 
+  // ---------- «Хитрая фраза» ----------
+  // Фраза сказана «не по картинке» — выбрать картинку, где всё именно так. Уровень 1 — фраза видна всё время,
+  // 2 картинки; 2–3 — фраза прячется после «Понятно!», 3 картинки. Картинки появляются только после «Понятно!»:
+  // в «Одно и то же?» она отвечала за секунду, не дочитав. Ошибка — как во «Вспышке»: найти главное слово,
+  // пояснение, вторая попытка. В лог — что выбирала (picks: ok / rev — «как слова стоят» / other) и вопрос (ask).
+  async function playTrick(my, mode) {
+    // ?tpl=H4 — шаблон для стенда (только в песочнице).
+    const task = makeTask(my, 'trick', tpl => C.trick(my.levels.trick, tpl || (SANDBOX && QS.get('tpl')) || undefined)), keep = task.level === 1 && mode === 'read';
+    const sized = o => (o.items.some(e => e.includes(':')) ? ' sized' : o.items.includes('/') ? ' units' : '');
+    app.innerHTML = `${barHTML()}
+      <section class="task">
+        <div class="prompt" id="prompt"></div>
+        <div class="options${task.options.length === 2 ? ' two' : ''}" id="opts" hidden>${task.options.map((o, i) => `<button class="opt${sized(o)}" data-i="${i}" aria-label="Вариант ${i + 1}">${sceneHTML(o)}</button>`).join('')}</div>
+        <p class="feedback" id="fb"></p>
+        <div class="actions">
+          <button class="btn small" id="again" hidden>${mode === 'audio' ? '🔊 Послушать ещё' : '👀 Посмотреть ещё'}</button>
+          <button class="btn primary" id="next" hidden>Дальше →</button>
+        </div>
+      </section>`;
+    bindExit();
+    const prompt = $('#prompt'), opts = $('#opts'), again = $('#again');
+    const ASK = `<p class="ask">${esc(task.ask)}</p>` + target('картинку');
+    let replays = 0, attempts = 0, correct = false, rt = null, busy = false, readMs = null, find = null;
+    const picks = [];
+
+    const present = async () => {
+      busy = true; again.disabled = true; opts.hidden = true;
+      if (mode === 'read') {
+        prompt.innerHTML = sentence(task.text) + '<div class="actions"><button class="btn primary small" id="got">Понятно!</button></div>';
+        const t0 = performance.now();
+        await new Promise(res => { $('#got', prompt).onclick = res; });
+        if (readMs === null) readMs = Math.round(performance.now() - t0);
+      } else {
+        prompt.innerHTML = '<div class="listen on">🔊</div><p class="hint">Слушай внимательно</p>';
+        await TTS.speak(task.say || task.text);
+      }
+      alive(my);
+      prompt.innerHTML = (keep ? sentence(task.text) : '') + ASK;
+      opts.hidden = false; again.disabled = false; busy = false;
+    };
+
+    await present();
+    again.hidden = keep;
+    const tAsk = performance.now();
+    while (attempts < 2 && !correct) {
+      const i = await new Promise(res => {
+        opts.onclick = e => { const b = e.target.closest('.opt'); if (b && !b.disabled && !busy) res(+b.dataset.i); };
+        again.onclick = () => { if (!busy) { replays++; present().catch(() => {}); } };
+      });
+      alive(my);
+      attempts++;
+      if (rt === null) rt = Math.round(performance.now() - tAsk);
+      const btn = opts.children[i];
+      picks.push(task.options[i].kind);
+      correct = task.options[i].kind === 'ok';
+      btn.classList.add(correct ? 'ok' : 'bad');
+      if (!correct) btn.disabled = true;
+      if (!correct && attempts < 2) {
+        busy = true; again.disabled = true;
+        find = await findWord(my, task);
+        prompt.innerHTML = sentence(task.text, task.trap) + `<p class="why1">${esc(task.why)}</p><p class="hint go">👇 ${esc(task.ask)} Выбери ещё раз</p>`;
+        busy = false; again.disabled = false;
+      }
+    }
+    opts.onclick = null; again.onclick = null; again.hidden = true;
+    [...opts.children].forEach((b, i) => { b.disabled = true; if (task.options[i].kind === 'ok') b.classList.add('ok'); });
+    prompt.innerHTML = sentence(task.text, task.trap) + (correct && attempts === 1 ? '' : `<p class="why1">${esc(task.why)}</p>`);
+    const r = { correct, attempts, replays, rt, readMs, find, extra: { picks, ask: task.ask } };
+    const first = finishTask(my, 'trick', mode, task, r);
+    await showResult(my, first, correct, r.levelUp);
+    return { first, text: task.text };
+  }
+
   // ---------- «Абзац» ----------
   // Рассказ на время (или голосом), потом два вопроса: про что он и деталь. С первого раза — оба верно без повтора.
   async function playPara(my, mode) {
@@ -846,7 +930,7 @@
     return { first, text: task.text };
   }
 
-  const PLAY = { flash: playFlash, robot: playRobot, trap: playTrap, same: playSame, para: playPara, task: playTask };
+  const PLAY = { flash: playFlash, robot: playRobot, trap: playTrap, same: playSame, trick: playTrick, para: playPara, task: playTask };
 
   // ---------- Секрет ----------
   // Иногда после верного ответа: во фразе спряталось имя кого-то из семьи (буквы идут по порядку, не подряд).
@@ -1131,7 +1215,7 @@
     const pct = a => (a.length ? Math.round(a.filter(r => r.first).length / a.length * 100) + '%' : '—');
     // «Глазами / на слух» — без «Ловушки» и «Задания»: они всегда глазами.
     const eyes = a => a.filter(r => r.mode === 'read' && r.game !== 'trap' && r.game !== 'task'), ears = a => a.filter(r => r.mode === 'audio');
-    const of = g => a => a.filter(r => r.game === g), COLS = ['trap', 'flash', 'same', 'para', 'task'];
+    const of = g => a => a.filter(r => r.game === g), COLS = ['trap', 'flash', 'trick', 'para', 'task'];
     // Слабые места: где доля ошибок выше — эти задания выпадают чаще (см. makeTask).
     // Шаблоны без названия (старые записи «Ловушки» до 15.10: T3.2…) не показываем.
     const weak = C.weakList(recs).filter(x => x.rate >= 0.15 && x.game !== 'robot' && C.tplName(x.game, x.tpl) !== x.tpl).slice(0, 5);
@@ -1222,7 +1306,7 @@
           <h3>Проверка для взрослых</h3>
           <p class="muted">Тестовая тренировка не меняет звёзды, уровни и статистику ребёнка. Её ответы попадают в логи с пометкой test.</p>
           <div class="row">
-            <label>Игра<select id="t-game">${opt('all', T.game, 'Все по очереди')}${['trap', 'flash', 'same', 'para', 'task'].map(g => opt(g, T.game, GAME_NAME[g])).join('')}${opt('robot', T.game, 'Робот (не в тренировке)')}</select></label>
+            <label>Игра<select id="t-game">${opt('all', T.game, 'Все по очереди')}${['trap', 'flash', 'trick', 'para', 'task'].map(g => opt(g, T.game, GAME_NAME[g])).join('')}${opt('same', T.game, 'Одно и то же? (не в тренировке)')}${opt('robot', T.game, 'Робот (не в тренировке)')}</select></label>
             <label>Уровень<select id="t-level">${opt(1, T.level, '1 — простой')}${opt(2, T.level, '2 — не, кроме, только')}${opt(3, T.level, '3 — сложный')}</select></label>
             <label>Режим<select id="t-mode">${opt('mix', T.mode, 'Смешанный')}${opt('read', T.mode, 'Глазами')}${opt('audio', T.mode, 'На слух')}</select></label>
             <label>Длительность<select id="t-min">${opt(2, T.minutes, '2 минуты')}${opt(15, T.minutes, '15 минут')}</select></label>
@@ -1346,7 +1430,7 @@
     return n === 0 ? 'в следующей тренировке' : `через ${n} ${plural(n, 'тренировку', 'тренировки', 'тренировок')}`;
   }
   const fmtTime = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const GAME_NAME = { flash: 'Вспышка', robot: 'Робот', trap: 'Ловушка', same: 'Одно и то же?', para: 'Абзац', task: 'Задание' };
+  const GAME_NAME = { flash: 'Вспышка', robot: 'Робот', trap: 'Ловушка', same: 'Одно и то же?', trick: 'Хитрая фраза', para: 'Абзац', task: 'Задание' };
   const lv = x => (x ? Object.keys(GAME_NAME).filter(g => x.levels[g]).map(g => `${GAME_NAME[g]} ${x.levels[g]}`).join(', ') : '?');
   const EV_TEXT = {
     'new-copy': () => 'Новая копия хранилища: прогресс с нуля',

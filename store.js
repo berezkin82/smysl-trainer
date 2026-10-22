@@ -10,8 +10,8 @@
   // не берётся; имена и фото только читаются. Стартует с копии настроек и прогресса основного хранилища.
   const SANDBOX_KEY = 'smysl.sandbox';
   const MAX_RECORDS = 5000;
-  // Все игры (у каждой свой уровень и история); «Робот» с 15.10 только в проверке взрослого.
-  const GAMES = ['flash', 'robot', 'trap', 'same', 'para', 'task'];
+  // Все игры (у каждой свой уровень и история); «Робот» с 15.10 и «Одно и то же?» с 22.10 — только в проверке взрослого.
+  const GAMES = ['flash', 'robot', 'trap', 'same', 'trick', 'para', 'task'];
   const emptyHist = () => Object.fromEntries(GAMES.map(g => [g, []]));
   const DEFAULTS = {
     settings: { name: '', mode: 'mix', voice: '', repo: '', token: '', test: null },

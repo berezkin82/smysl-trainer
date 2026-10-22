@@ -222,6 +222,16 @@
   .opt.ok { border-color: var(--ok); background: var(--ok-bg); }
   .opt.bad { border-color: var(--bad); background: var(--bad-bg); animation: shake .35s; }
   .opt:disabled { opacity: 1; }
+  /* «Хитрая фраза»: две картинки — по центру; большой / маленький предмет стоят на одной линии; стрелка; группы-плашки */
+  .options.two { grid-template-columns: repeat(2, minmax(0, 360px)); justify-content: center; }
+  @media (max-width: 640px) { .options.two { grid-template-columns: 1fr; } }
+  .opt.sized { align-items: flex-end; }
+  .pic.sz-b { width: 1.6em; height: 1.6em; }
+  .pic.sz-s { width: .7em; height: .7em; }
+  .opt .arrow { font-weight: 900; color: var(--muted); align-self: center; }
+  .opt.units { flex-wrap: nowrap; gap: 10px; font-size: clamp(30px, 4vw, 46px); }
+  .opt .unit { display: flex; gap: 2px; padding: 8px 10px; border-radius: 18px; background: var(--surface-2); }
+  .exscene { display: flex; gap: 10px; justify-content: center; margin: 0; font-size: 44px; }
   @keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
 
   .field { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
